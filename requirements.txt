@@ -1,0 +1,32 @@
+# BSAI_ComfyUI_Nodes Dependencies
+
+# Core dependencies
+torch>=2.0.0
+numpy>=1.24.0
+Pillow>=9.0.0
+
+# Video processing
+opencv-python>=4.8.0
+
+# Audio processing
+scipy>=1.10.0
+soundfile>=0.12.0
+
+# OLLAMA (for MultiImageReverse node)
+ollama>=0.1.0
+
+# llama-cpp-python (for QwenNodes local LLM inference)
+llama-cpp-python>=0.2.78
+
+# Data validation
+pydantic>=2.0.0
+
+# LingBot-Video model dependencies
+transformers>=5.0.0
+diffusers>=0.37.0
+peft>=0.10.0
+decord>=0.6.0
+json_repair>=0.1.0
+huggingface_hub>=0.20.0
+imageio>=2.30.0
+packaging>=23.0.0
