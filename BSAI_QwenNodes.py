@@ -197,6 +197,11 @@ class _BSAI_QwenStorage:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"找不到模型文件：{model_path}")
 
+        if _bsai_check_mtp_layer(model_path):
+            no_mtp_path = _bsai_strip_mtp_layer(model_path)
+            if no_mtp_path and os.path.exists(no_mtp_path):
+                model_path = no_mtp_path
+
         mmproj = config.get("mmproj", "无")
         mmproj_path = None
         if mmproj and mmproj != "无":
@@ -211,7 +216,7 @@ class _BSAI_QwenStorage:
 
         chat_handler = None
         if mmproj_path:
-            if family in ("Qwen3.5-VL", "Qwen3.6-VL"):
+            if family in ("Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL"):
                 if Qwen35ChatHandler is None:
                     raise RuntimeError("当前 llama-cpp-python 不支持 Qwen35ChatHandler，请更新 llama-cpp-python。")
                 try:
@@ -246,6 +251,39 @@ class _BSAI_QwenStorage:
             cls.settings = dict(config)
             return cls.model
         except ValueError as e:
+            if "Failed to load model from file" in str(e):
+                mtp_detected = _bsai_check_mtp_layer(model_path)
+                if mtp_detected:
+                    no_mtp_path = _bsai_strip_mtp_layer(model_path)
+                    if no_mtp_path:
+                        llama_kwargs["model_path"] = no_mtp_path
+                        try:
+                            cls.model = Llama(**llama_kwargs)
+                            cls.settings = dict(config)
+                            cls.settings["model"] = os.path.basename(no_mtp_path)
+                            return cls.model
+                        except Exception:
+                            pass
+                    raise RuntimeError(
+                        "模型加载失败：该 GGUF 文件包含 MTP/NextN 预测层（nextn_predict_layers），\n"
+                        "当前 llama-cpp-python 版本不支持此特性。\n\n"
+                        "解决方案：\n"
+                        "1. 已尝试自动生成去 MTP 版本，请检查同目录下是否有 -noMTP.gguf 文件\n"
+                        "2. 手动使用去 MTP 版本的 GGUF 文件\n"
+                        "3. 或使用不含 MTP 层的 Qwen3.5/3.6 模型作为替代\n"
+                        f"原始错误：{e}"
+                    )
+                raise RuntimeError(
+                    "模型加载失败：Failed to load model from file\n" +
+                    "可能的原因：\n" +
+                    "1. 模型文件损坏或格式不兼容\n" +
+                    "2. llama-cpp-python 版本不支持该模型架构\n" +
+                    "3. 模型文件路径错误\n" +
+                    "建议：\n" +
+                    "- 检查模型文件完整性\n" +
+                    "- 更新 llama-cpp-python 到最新版本\n" +
+                    "- 确保模型路径正确"
+                )
             if "Failed to create context with model" in str(e):
                 raise RuntimeError(
                     "模型加载失败：Failed to create context with model\n" +
@@ -275,6 +313,198 @@ def _bsai_list_llm_files():
         return folder_paths.get_filename_list("LLM")
     except Exception:
         return []
+
+
+def _bsai_check_mtp_layer(model_path):
+    """Check if a GGUF file contains MTP/NextN prediction layer metadata."""
+    import struct as _struct
+    try:
+        with open(model_path, 'rb') as f:
+            magic = _struct.unpack('<I', f.read(4))[0]
+            if magic != 0x46554747:
+                return False
+            version = _struct.unpack('<I', f.read(4))[0]
+            tensor_count = _struct.unpack('<Q', f.read(8))[0]
+            kv_count = _struct.unpack('<Q', f.read(8))[0]
+
+            for i in range(kv_count):
+                key_len = _struct.unpack('<Q', f.read(8))[0]
+                key = f.read(key_len).decode('utf-8', errors='replace')
+                vtype = _struct.unpack('<I', f.read(4))[0]
+
+                if 'nextn_predict' in key:
+                    return True
+
+                if vtype == 8:
+                    str_len = _struct.unpack('<Q', f.read(8))[0]
+                    f.read(str_len)
+                elif vtype in (4, 5, 6):
+                    f.read(4)
+                elif vtype == 10:
+                    f.read(8)
+                elif vtype == 7:
+                    f.read(1)
+                elif vtype == 2:
+                    f.read(1)
+                elif vtype == 9:
+                    array_type = _struct.unpack('<I', f.read(4))[0]
+                    array_len = _struct.unpack('<Q', f.read(8))[0]
+                    if array_type == 8:
+                        for _ in range(array_len):
+                            sl = _struct.unpack('<Q', f.read(8))[0]
+                            f.read(sl)
+                    elif array_type in (4, 5, 6):
+                        f.read(4 * array_len)
+                    elif array_type == 10:
+                        f.read(8 * array_len)
+                    elif array_type == 7:
+                        f.read(array_len)
+                    elif array_type == 2:
+                        f.read(array_len)
+                    else:
+                        break
+                else:
+                    break
+    except Exception:
+        pass
+    return False
+
+
+def _bsai_strip_mtp_layer(model_path):
+    """Strip MTP/NextN layer from GGUF file. Returns path to stripped file or None."""
+    import struct as _struct
+    try:
+        from gguf.constants import GGML_QUANT_SIZES
+    except Exception:
+        return None
+
+    base, ext = os.path.splitext(model_path)
+    no_mtp_path = base + "-noMTP" + ext
+    if os.path.exists(no_mtp_path):
+        return no_mtp_path
+
+    GGUF_MAGIC = 0x46554747
+    ALIGNMENT = 32
+    TYPE_SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+
+    try:
+        with open(model_path, 'rb') as fin:
+            magic = _struct.unpack('<I', fin.read(4))[0]
+            version = _struct.unpack('<I', fin.read(4))[0]
+            tensor_count = _struct.unpack('<Q', fin.read(8))[0]
+            kv_count = _struct.unpack('<Q', fin.read(8))[0]
+
+            metadata = []
+            for i in range(kv_count):
+                key_len = _struct.unpack('<Q', fin.read(8))[0]
+                key = fin.read(key_len)
+                vtype = _struct.unpack('<I', fin.read(4))[0]
+                pos_before = fin.tell()
+                _value = None
+                if vtype == 8:
+                    str_len = _struct.unpack('<Q', fin.read(8))[0]
+                    fin.read(str_len)
+                elif vtype in TYPE_SIZES:
+                    fin.read(TYPE_SIZES[vtype])
+                elif vtype == 9:
+                    array_type = _struct.unpack('<I', fin.read(4))[0]
+                    array_len = _struct.unpack('<Q', fin.read(8))[0]
+                    if array_type == 8:
+                        for _ in range(array_len):
+                            sl = _struct.unpack('<Q', fin.read(8))[0]
+                            fin.read(sl)
+                    elif array_type in (4, 5, 6):
+                        fin.read(4 * array_len)
+                    elif array_type == 10:
+                        fin.read(8 * array_len)
+                    elif array_type == 7:
+                        fin.read(array_len)
+                    elif array_type == 2:
+                        fin.read(array_len)
+                pos_after = fin.tell()
+                fin.seek(pos_before)
+                raw_bytes = fin.read(pos_after - pos_before)
+                metadata.append((key, vtype, raw_bytes))
+
+            tensor_infos = []
+            for i in range(tensor_count):
+                name_len = _struct.unpack('<Q', fin.read(8))[0]
+                name = fin.read(name_len)
+                n_dims = _struct.unpack('<I', fin.read(4))[0]
+                dims = [_struct.unpack('<Q', fin.read(8))[0] for _ in range(n_dims)]
+                ttype = _struct.unpack('<I', fin.read(4))[0]
+                offset = _struct.unpack('<Q', fin.read(8))[0]
+                tensor_infos.append((name, n_dims, dims, ttype, offset))
+
+            data_start = fin.tell()
+            padded_data_start = (data_start + ALIGNMENT - 1) // ALIGNMENT * ALIGNMENT
+
+        new_metadata = []
+        block_count_raw = None
+        for key, vtype, raw_bytes in metadata:
+            key_str = key.decode('utf-8', errors='replace')
+            if 'nextn_predict' in key_str:
+                continue
+            if key_str.endswith('.block_count'):
+                old_val = _struct.unpack('<I', raw_bytes[-4:])[0]
+                new_raw = raw_bytes[:-4] + _struct.pack('<I', old_val - 1)
+                new_metadata.append((key, vtype, new_raw))
+            else:
+                new_metadata.append((key, vtype, raw_bytes))
+
+        new_tensor_infos = [t for t in tensor_infos if b'blk.64.' not in t[0]]
+
+        with open(no_mtp_path, 'wb') as fout:
+            fout.write(_struct.pack('<I', GGUF_MAGIC))
+            fout.write(_struct.pack('<I', version))
+            fout.write(_struct.pack('<Q', len(new_tensor_infos)))
+            fout.write(_struct.pack('<Q', len(new_metadata)))
+
+            for key, vtype, raw_bytes in new_metadata:
+                fout.write(_struct.pack('<Q', len(key)))
+                fout.write(key)
+                fout.write(_struct.pack('<I', vtype))
+                fout.write(raw_bytes)
+
+            current_offset = 0
+            offset_map = []
+            for name, n_dims, dims, ttype, old_offset in new_tensor_infos:
+                fout.write(_struct.pack('<Q', len(name)))
+                fout.write(name)
+                fout.write(_struct.pack('<I', n_dims))
+                for d in dims:
+                    fout.write(_struct.pack('<Q', d))
+                fout.write(_struct.pack('<I', ttype))
+                fout.write(_struct.pack('<Q', current_offset))
+
+                if ttype in GGML_QUANT_SIZES:
+                    block_size, type_size = GGML_QUANT_SIZES[ttype]
+                    num_elems = 1
+                    for d in dims:
+                        num_elems *= d
+                    tensor_size = (num_elems // block_size) * type_size
+                else:
+                    tensor_size = 0
+                offset_map.append((old_offset, current_offset, tensor_size))
+                current_offset += tensor_size
+                current_offset = (current_offset + ALIGNMENT - 1) // ALIGNMENT * ALIGNMENT
+
+            header_end = fout.tell()
+            padded = (header_end + ALIGNMENT - 1) // ALIGNMENT * ALIGNMENT
+            fout.write(b'\x00' * (padded - header_end))
+
+            with open(model_path, 'rb') as fin:
+                for old_offset, new_offset, tensor_size in offset_map:
+                    fin.seek(padded_data_start + old_offset)
+                    data = fin.read(tensor_size)
+                    fout.write(data)
+                    padded_written = (len(data) + ALIGNMENT - 1) // ALIGNMENT * ALIGNMENT
+                    if padded_written > len(data):
+                        fout.write(b'\x00' * (padded_written - len(data)))
+
+        return no_mtp_path
+    except Exception:
+        return None
 
 
 def _bsai_call_chat_completion(llm, messages, params):
@@ -334,7 +564,7 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Gemma4"], {"default": "Qwen3.6-VL"}),
+                "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "主模型": (model_list, {"tooltip": "主模型文件（建议 .gguf）放到 ComfyUI/models/LLM/"}),
                 "视觉投影mmproj": (mmproj_list, {"default": "无", "tooltip": "多模态需要 mmproj；纯文本可选“无”。"}),
                 "启用思考": ("BOOLEAN", {"default": False}),
@@ -352,7 +582,7 @@ class BSAI_QwenModelLoader:
         if 主模型.startswith("（请把模型放到"):
             raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
 
-        if 模型系列 in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Gemma4"):
+        if 模型系列 in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
             if 视觉投影mmproj == "无":
                 raise RuntimeError(
                     f"{模型系列} 是多模态模型，需要选择视觉投影mmproj文件。\n" +
@@ -658,7 +888,7 @@ class BSAI_QwenMultimodalInference:
                     "可能的原因和解决方案：\n"
                     "1. 输入图像分辨率过大 — 已自动限制为最长边 1536 像素，若仍失败请手动缩小原图。\n"
                     "2. mmproj 视觉投影模型与主模型不匹配 — 请确保加载了对应版本的 mmproj 文件。\n"
-                    "   例如：Qwen3.6-VL 主模型必须搭配 Qwen3.6-VL 的 mmproj。\n"
+                    "   例如：Qwen3.8-VL 主模型必须搭配 Qwen3.8-VL 的 mmproj。\n"
                     "3. 显存不足导致 CLIP 编码失败 — 请尝试减少输入图像/视频帧数，或重启 ComfyUI。\n"
                     "4. 图像文件损坏或格式异常 — 请检查输入图像能否正常打开。\n"
                     f"原始错误：{e}"

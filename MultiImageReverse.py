@@ -62,8 +62,8 @@ class BSAI_MultiImageVideoReverse:
                     "default": "请详细分析这些图像和视频帧，包括所有细节，并生成一个综合描述。",
                     "tooltip": "用户提示词 - 你希望模型执行的任务"
                 }),
-                "model": (["qwen3.5:latest", "qwen3.6:latest", "gemma4:31b", "qwen-vl:latest", "llava:latest", "deepseek-vl:latest", "custom"], 
-                          {"default": "qwen3.5:latest", "tooltip": "选择一个Ollama模型进行推理"}),
+                "model": (["qwen3:latest", "qwen3.5:latest", "qwen3.6:latest", "qwen3.8:latest", "gemma4:31b", "custom"],
+                          {"default": "qwen3.8:latest", "tooltip": "选择一个Ollama模型进行推理"}),
                 "url": ("STRING", {
                     "default": "http://127.0.0.1:11434",
                     "tooltip": "Ollama服务器的URL。默认值指向本地实例，使用ollama的默认端口配置。"

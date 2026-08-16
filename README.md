@@ -34,7 +34,7 @@ BSAI 自定义 ComfyUI 节点合集，整合了视频处理、图像处理、音
 
 | 节点名称 | 功能说明 |
 |---------|---------|
-| **BSAI Qwen Model Loader** | 加载 Qwen3-VL / Qwen3.5-VL / Qwen3.6-VL / Gemma4 模型（GGUF 格式），支持多模态视觉投影 |
+| **BSAI Qwen Model Loader** | 加载 Qwen3-VL / Qwen3.5-VL / Qwen3.6-VL / Qwen3.8-VL / Gemma4 模型（GGUF 格式），支持多模态视觉投影 |
 | **BSAI Qwen Prompt Inference** | 纯文本提示词推理，支持温度、top_p、top_k 等参数调节 |
 | **BSAI Qwen Multimodal Inference** | 多模态推理，支持 5 张图片 + 3 个视频输入，自动采样视频帧 |
 | **BSAI Qwen Unload Model** | 卸载模型释放显存 |
@@ -45,7 +45,7 @@ BSAI 自定义 ComfyUI 节点合集，整合了视频处理、图像处理、音
 
 | 节点名称 | 功能说明 |
 |---------|---------|
-| **BSAI 多图像视频反推** | 支持 10 张图片 + 5 个视频输入，使用 OLLAMA 模型分析并生成描述，返回响应文本、思考过程和提示词列表 |
+| **BSAI 多图像视频反推** | 支持 10 张图片 + 5 个视频输入，使用 OLLAMA 模型（Qwen3 / Qwen3.5 / Qwen3.6 / Qwen3.8 / Gemma4）分析并生成描述，返回响应文本、思考过程和提示词列表 |
 
 ---
 
