@@ -617,6 +617,7 @@ class BSAI_QwenPromptInference:
                 "频率惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "存在惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
+                "推理后自动卸载": ("BOOLEAN", {"default": True, "tooltip": "推理完成后立即释放 LLM 显存(约16GB)，避免占用导致后续其他模型 OOM。多节点串联用同一模型的场景请关闭。"}),
             }
         }
 
@@ -625,7 +626,7 @@ class BSAI_QwenPromptInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed):
+    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed, 推理后自动卸载):
         llm = qwen模型
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -685,6 +686,9 @@ class BSAI_QwenPromptInference:
             text = out["choices"][0]["message"]["content"]
         except Exception:
             text = str(out)
+
+        if 推理后自动卸载:
+            _BSAI_QwenStorage.unload()
 
         return (text.lstrip().removeprefix(": ").strip(),)
 
@@ -780,6 +784,7 @@ class BSAI_QwenMultimodalInference:
                 "频率惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "存在惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
+                "推理后自动卸载": ("BOOLEAN", {"default": True, "tooltip": "推理完成后立即释放 LLM 显存(约16GB)，避免占用导致后续其他模型 OOM。多节点串联用同一模型的场景请关闭。"}),
                 "视频最大采样帧数": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
             },
             "optional": {
@@ -799,7 +804,7 @@ class BSAI_QwenMultimodalInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed, 视频最大采样帧数, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
+    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed, 推理后自动卸载, 视频最大采样帧数, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
         llm = qwen模型
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -899,6 +904,9 @@ class BSAI_QwenMultimodalInference:
             text = out["choices"][0]["message"]["content"]
         except Exception:
             text = str(out)
+
+        if 推理后自动卸载:
+            _BSAI_QwenStorage.unload()
 
         return (text.lstrip().removeprefix(": ").strip(),)
 
