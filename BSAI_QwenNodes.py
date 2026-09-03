@@ -220,23 +220,23 @@ class _BSAI_QwenStorage:
                 if Qwen35ChatHandler is None:
                     raise RuntimeError("当前 llama-cpp-python 不支持 Qwen35ChatHandler，请更新 llama-cpp-python。")
                 try:
-                    chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False)
+                    chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
-                    chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, verbose=False)
+                    chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, verbose=False, use_gpu=False, image_min_tokens=1024)
             elif family == "Qwen3-VL":
                 if Qwen3VLChatHandler is None:
                     raise RuntimeError("当前 llama-cpp-python 不支持 Qwen3VLChatHandler，请更新 llama-cpp-python。")
                 try:
-                    chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, force_reasoning=think, verbose=False)
+                    chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, force_reasoning=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
-                    chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, verbose=False)
+                    chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, verbose=False, use_gpu=False, image_min_tokens=1024)
             elif family == "Gemma4":
                 if Gemma4ChatHandler is None:
                     raise RuntimeError("当前 llama-cpp-python 不支持 Gemma4ChatHandler，请更新 llama-cpp-python到0.3.36+。")
                 try:
-                    chat_handler = Gemma4ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False)
+                    chat_handler = Gemma4ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
-                    chat_handler = Gemma4ChatHandler(clip_model_path=mmproj_path, verbose=False)
+                    chat_handler = Gemma4ChatHandler(clip_model_path=mmproj_path, verbose=False, use_gpu=False, image_min_tokens=1024)
 
         llama_kwargs = {
             "model_path": model_path,
@@ -932,8 +932,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BSAI_MultiplePathsInputPlus": "BSAI Multiple Paths Input Plus",
     "BSAI_VideoLoaderPlus": "BSAI Video Loader Plus",
-    "MultiplePathsInputPlus": "Multiple Paths Input Plus",
-    "VideoLoaderPlus": "Video Loader Plus",
+    "MultiplePathsInputPlus": "BSAI Multiple Paths Input Plus",
+    "VideoLoaderPlus": "BSAI Video Loader Plus",
     "BSAI_QwenModelLoader": "BSAI Qwen Model Loader",
     "BSAI_QwenPromptInference": "BSAI Qwen Prompt Inference",
     "BSAI_QwenMultimodalInference": "BSAI Qwen Multimodal Inference",
