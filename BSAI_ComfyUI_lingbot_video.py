@@ -13,6 +13,45 @@ import torch
 import numpy as np
 from typing import Optional
 
+# ==== BSAI 插件协同 SDK：加载即自动注册（失败不拖垮插件） ====
+try:
+    import sys as _bsai_sys, os as _bsai_os
+    _BSAI_ORCH_DIR = _bsai_os.path.join(
+        _bsai_os.path.dirname(_bsai_os.path.abspath(__file__)),
+        "..", "BSAI-ComfyUI-Orchestrator")
+    if _bsai_os.path.isdir(_BSAI_ORCH_DIR) and _BSAI_ORCH_DIR not in _bsai_sys.path:
+        _bsai_sys.path.insert(0, _BSAI_ORCH_DIR)
+    from bsai_orch_client import BSAIOrch  # noqa: E402
+    BSAIOrch.register(
+        name="BSAI-LingBot-Video",
+        kind="video_infer",
+        hardware=["cuda"],
+    )
+except Exception as _bsai_e:  # 注册失败不得拖垮插件
+    print(f"[BSAI SDK] BSAI-LingBot-Video 注册失败(忽略): {_bsai_e}")
+# ==== BSAI SDK 块结束 ====
+
+
+def _bsai_video_lease():
+    """BSAI 协同：video_infer 租约（失败不阻断推理，仅叠加租约管理）。"""
+    try:
+        _a = BSAIOrch.allocate("video_infer", requester="8191")
+        if not _a.ok:
+            print(f"[BSAI-LingBot-Video] SDK 未取得 video_infer 租约({_a.reason})，仍按原逻辑推理")
+        return _a
+    except Exception as _e:
+        print(f"[BSAI-LingBot-Video] SDK allocate 异常(忽略): {_e}")
+        return None
+
+
+def _bsai_video_release(_a):
+    if _a is not None:
+        try:
+            _a.release()
+        except Exception:
+            pass
+
+
 # 将 lingbot_video 模块目录加入 sys.path（相对路径）
 _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LINGBOT_VIDEO_LIB = os.path.join(_PLUGIN_DIR, "lingbot_video")
@@ -367,17 +406,21 @@ class BSAI_LingBot_Video_T2V:
             # Pipeline 内部已有精确的 autocast 管理，不需要外层 autocast
             # 外层 autocast 会干扰 VAE decode 的 dtype 控制，并增加显存开销
             torch.cuda.empty_cache()
-            result = pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt or None,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                shift=shift,
-            )
+            _bsai_a = _bsai_video_lease()
+            try:
+                result = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt or None,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                    shift=shift,
+                )
+            finally:
+                _bsai_video_release(_bsai_a)
 
             # 提取视频帧
             if hasattr(result, "frames") and result.frames is not None:
@@ -452,17 +495,21 @@ class BSAI_LingBot_Video_T2I:
         try:
             # Pipeline 内部已有精确的 autocast 管理
             torch.cuda.empty_cache()
-            result = pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt or None,
-                height=height,
-                width=width,
-                num_frames=1,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                shift=shift,
-            )
+            _bsai_a = _bsai_video_lease()
+            try:
+                result = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt or None,
+                    height=height,
+                    width=width,
+                    num_frames=1,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                    shift=shift,
+                )
+            finally:
+                _bsai_video_release(_bsai_a)
 
             # 提取图像
             if hasattr(result, "images") and result.images is not None:
@@ -571,18 +618,22 @@ class BSAI_LingBot_Video_TI2V:
         try:
             # Pipeline 内部已有精确的 autocast 管理
             torch.cuda.empty_cache()
-            result = i2v_pipe(
-                prompt=prompt,
-                negative_prompt=negative_prompt or None,
-                image=pil_image,
-                height=h,
-                width=w,
-                num_frames=num_frames,
-                num_inference_steps=steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-                shift=shift,
-            )
+            _bsai_a = _bsai_video_lease()
+            try:
+                result = i2v_pipe(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt or None,
+                    image=pil_image,
+                    height=h,
+                    width=w,
+                    num_frames=num_frames,
+                    num_inference_steps=steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                    shift=shift,
+                )
+            finally:
+                _bsai_video_release(_bsai_a)
 
             # 提取视频帧
             if hasattr(result, "frames") and result.frames is not None:

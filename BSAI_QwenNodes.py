@@ -132,6 +132,8 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
                 "loop": ("BOOLEAN", {"default": False}),
                 "resize_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
                 "resize_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
+                "output_mode": (["完整视频", "选中单帧"], {"default": "完整视频"}),
+                "frame_index": ("INT", {"default": 0, "min": 0, "max": 100000, "step": 1}),
             },
         }
 
@@ -141,7 +143,8 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
     RETURN_NAMES = ("video", "path", "total_frames")
     FUNCTION = "load_video_plus"
 
-    def load_video_plus(self, file, frame_rate=30.0, start_frame=0, end_frame=-1, loop=False, resize_width=0, resize_height=0):
+    def load_video_plus(self, file, frame_rate=30.0, start_frame=0, end_frame=-1, loop=False,
+                        resize_width=0, resize_height=0, output_mode="完整视频", frame_index=0):
         video_path = folder_paths.get_annotated_filepath(file)
         
         cap = cv2.VideoCapture(video_path)
@@ -150,17 +153,49 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
         
         if end_frame < 0:
             end_frame = total_frames
+
+        if output_mode == "选中单帧":
+            # 提取指定帧，生成单帧视频
+            idx = max(0, min(int(frame_index), total_frames - 1))
+            cap = cv2.VideoCapture(video_path)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            cap.release()
+            if not ret:
+                raise ValueError(f"无法读取第 {idx} 帧")
+            
+            # BGR -> RGB, 转为 torch tensor
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # 可选缩放
+            if resize_width > 0 and resize_height > 0:
+                frame_rgb = cv2.resize(frame_rgb, (resize_width, resize_height))
+            frame_tensor = torch.from_numpy(frame_rgb).float() / 255.0
+            # 添加 batch 维度 -> [1, H, W, C]
+            frame_tensor = frame_tensor.unsqueeze(0)
+
+            # 使用 VideoComponents 创建单帧视频
+            from comfy_api.latest import Types
+            single_video = InputImpl.VideoFromComponents(
+                Types.VideoComponents(
+                    images=frame_tensor,
+                    frame_rate=frame_rate,
+                    audio=None,
+                ),
+                bit_depth=8,
+                color_space="sRGB",
+            )
+            return (single_video, video_path, total_frames)
         
         return (InputImpl.VideoFromFile(video_path), video_path, total_frames)
 
     @classmethod
-    def IS_CHANGED(cls, file):
+    def IS_CHANGED(cls, file, output_mode="完整视频", frame_index=0, **kwargs):
         video_path = folder_paths.get_annotated_filepath(file)
         mod_time = os.path.getmtime(video_path)
-        return mod_time
+        return f"{mod_time}_{output_mode}_{frame_index}"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, file):
+    def VALIDATE_INPUTS(cls, file, **kwargs):
         if not folder_paths.exists_annotated_filepath(file):
             return "Invalid video file: {}".format(file)
         return True
@@ -940,8 +975,6 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BSAI_MultiplePathsInputPlus": "BSAI Multiple Paths Input Plus",
     "BSAI_VideoLoaderPlus": "BSAI Video Loader Plus",
-    "MultiplePathsInputPlus": "BSAI Multiple Paths Input Plus",
-    "VideoLoaderPlus": "BSAI Video Loader Plus",
     "BSAI_QwenModelLoader": "BSAI Qwen Model Loader",
     "BSAI_QwenPromptInference": "BSAI Qwen Prompt Inference",
     "BSAI_QwenMultimodalInference": "BSAI Qwen Multimodal Inference",
