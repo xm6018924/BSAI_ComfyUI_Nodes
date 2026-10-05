@@ -276,11 +276,34 @@ function createPlayer(node) {
     hint.textContent = "💡 暂停视频自动同步帧号";
     container.appendChild(hint);
 
-    // ---- 真实 FPS 探测（用 requestVideoFrameCallback，100% 准确） ----
-    let realFps = null;       // 探测到的真实 FPS
-    let fpsSamples = [];      // FPS 样本（取平均值更稳定）
-    let lastFrameCount = 0;
-    let lastFrameTime = 0;
+    // ---- 真实 FPS / 总帧数：从后端 /bsai_vlp/video_info 获取（100% 准确） ----
+    let realFps = null;       // 后端返回的精确 FPS
+    let totalFrames = null;   // 后端返回的精确总帧数
+    let videoDuration = null; // video.duration（HTML5 元数据）
+
+    // 向后端请求精确视频信息
+    function fetchExactInfo() {
+        const fileW = getWidgetByName(node, "file");
+        if (!fileW || !fileW.value) return;
+        let fname = fileW.value;
+        let subfolder = "";
+        try {
+            if (fileW.options && fileW.options.subfolder) subfolder = fileW.options.subfolder;
+        } catch(e) {}
+        const url = "/bsai_vlp/video_info?filename=" + encodeURIComponent(fname) +
+                    "&subfolder=" + encodeURIComponent(subfolder);
+        fetch(url)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (data && !data.error) {
+                    realFps = data.fps;
+                    totalFrames = data.total_frames;
+                    updateFpsTag();
+                    console.log("[BSAI VLP] exact info:", realFps, "fps,", totalFrames, "frames");
+                }
+            })
+            .catch(() => {});
+    }
 
     function updateFpsTag() {
         const tag = info.querySelector(".bsai-fps-tag");
@@ -294,38 +317,17 @@ function createPlayer(node) {
         }
     }
 
-    function probeFpsWithRVFC() {
-        if (!video.requestVideoFrameCallback) {
-            // 浏览器不支持 RVFC，兜底用 videoDuration + 估算
-            realFps = getFps(node);
-            updateFpsTag();
-            return;
-        }
-
-        function onFrame(now, metadata) {
-            if (metadata.presentedFrames > 0 && metadata.mediaTime > 0.1) {
-                const fps = metadata.presentedFrames / metadata.mediaTime;
-                if (fps > 10 && fps < 240) {
-                    fpsSamples.push(fps);
-                    // 取最近 10 个样本的平均值
-                    if (fpsSamples.length > 10) fpsSamples.shift();
-                    if (fpsSamples.length >= 3) {
-                        const avg = fpsSamples.reduce(function(a, b) { return a + b; }, 0) / fpsSamples.length;
-                        realFps = Math.round(avg * 100) / 100;
-                        updateFpsTag();
-                    }
-                }
-            }
-            video.requestVideoFrameCallback(onFrame);
-        }
-        video.requestVideoFrameCallback(onFrame);
-    }
-
-    // ---- 计算当前帧号（优先用真实 FPS，兜底用设置的 frame_rate） ----
+    // ---- 计算当前帧号（用后端精确 fps，兜底用设置的 frame_rate） ----
     function getCurrentFrame() {
         const ct = video.currentTime || 0;
         const fps = realFps !== null ? realFps : getFps(node);
-        return Math.floor(ct * fps);
+        // 用 round 而不是 floor，避免末尾差 1 帧
+        let frame = Math.round(ct * fps);
+        // 如果后端有 totalFrames，钳位到合法范围
+        if (totalFrames !== null && totalFrames > 0) {
+            frame = Math.max(0, Math.min(frame, totalFrames - 1));
+        }
+        return frame;
     }
 
     function getCurrentFps() {
@@ -358,12 +360,9 @@ function createPlayer(node) {
     });
 
     video.addEventListener("loadedmetadata", function() {
-        // 元数据加载后，开始 FPS 探测
-        probeFpsWithRVFC();
-        // 也尝试播放一帧来加速探测
-        if (video.paused) {
-            video.currentTime = 0.1;
-        }
+        // 从后端获取精确 fps / total_frames
+        videoDuration = video.duration;
+        fetchExactInfo();
     });
 
     video.addEventListener("pause", function() {

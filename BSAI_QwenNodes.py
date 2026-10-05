@@ -1154,6 +1154,41 @@ class BSAI_QwenUnloadModel:
         return (任意输入,)
 
 
+# ---- BSAI VLP: exact video info endpoint (replaces unreliable RVFC fps guess) ----
+try:
+    from aiohttp import web as _aiohttp_web
+    from server import PromptServer as _PromptServer
+
+    @_PromptServer.instance.routes.get("/bsai_vlp/video_info")
+    async def _bsai_vlp_video_info(request):
+        fname = request.query.get("filename", "")
+        subfolder = request.query.get("subfolder", "")
+        if not fname:
+            return _aiohttp_web.json_response({"error": "no filename"}, status=400)
+        try:
+            base = folder_paths.get_input_directory()
+            vpath = os.path.join(base, subfolder, fname) if subfolder else os.path.join(base, fname)
+            cap = cv2.VideoCapture(vpath)
+            if not cap.isOpened():
+                return _aiohttp_web.json_response({"error": "cannot open"}, status=404)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            if fps <= 0 or fps != fps:  # NaN check
+                fps = 30.0
+            return _aiohttp_web.json_response({
+                "fps": float(fps), "total_frames": total,
+                "width": w, "height": h,
+                "duration": float(total) / float(fps),
+            })
+        except Exception as e:
+            return _aiohttp_web.json_response({"error": str(e)}, status=500)
+except Exception as _e:
+    print(f"[BSAI_VLP] video_info route not registered: {_e}")
+
+
 NODE_CLASS_MAPPINGS = {
     "BSAI_MultiplePathsInputPlus": BSAI_MultiplePathsInputPlus,
     "BSAI_VideoLoaderPlus": BSAI_VideoLoaderPlus,
