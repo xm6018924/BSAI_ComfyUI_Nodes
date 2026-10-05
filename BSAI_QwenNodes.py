@@ -1218,7 +1218,14 @@ class BSAI_StepScheduleConfig(ComfyNodeABC):
             "required": {
                 "recipe": (list(_RECIPE_LIST), {
                     "default": _RECIPE_8STEP_V2,
-                    "tooltip": "一键预设步数配方。改这里，同时驱动 VedaSparse + Timesteps + EulerSampler。",
+                    "tooltip": (
+                        "一键预设步数配方。改这里同时驱动 VedaSparse + Timesteps + EulerSampler。\n\n"
+                        "⚠️ 必须与底模/LoRA匹配：\n"
+                        "• 8-step V2 → 底模 fastvideo_fasth3_8step_v2_pruned_int8（当前默认）\n"
+                        "• 4-step Preview → 启用 4-step LoRA（DMAD/FlashGen/PDMD），强度=1.0\n"
+                        "• 3-step TaoMate → 需加载 3-step TaoMate LoRA（当前未预接）\n"
+                        "步数不匹配会出糊图/噪点。"
+                    ),
                 }),
                 "custom_ladder": ("STRING", {
                     "default": "",
