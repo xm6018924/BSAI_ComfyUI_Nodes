@@ -91,10 +91,10 @@ if (!document.getElementById(STYLE_ID)) {
 const debugBadge = document.createElement("div");
 debugBadge.className = "bsai-vlp-debug";
 debugBadge.textContent = "VLP";
-debugBadge.title = "BSAI VLP Player - 点击查看调试";
+debugBadge.title = "BSAI VLP Player";
 debugBadge.onclick = function() {
     const graph = app.canvas?.graph || app.graph;
-    let info = "BSAI VLP 调试\n==========\n";
+    let info = "BSAI VLP\n==========\n";
 
     // 直接扫描 DOM 节点
     const domNodes = document.querySelectorAll(".litegraph-node");
