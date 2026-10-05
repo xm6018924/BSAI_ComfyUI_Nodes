@@ -1189,6 +1189,62 @@ except Exception as _e:
     print(f"[BSAI_VLP] video_info route not registered: {_e}")
 
 
+# ---- BSAI Step Schedule Config: one dropdown drives VedaSparse / Timesteps / EulerSampler ----
+_RECIPE_4STEP = "4-step Preview (999,749,500,250 · shift 12/3 · keep 10%)"
+_RECIPE_8STEP_V2 = "8-step V2 (999,874,749,624,500,375,250,125 · shift 10/3 · keep 20%)"
+_RECIPE_STEP3 = "3-step TaoMate (999,750,500 · shift 12/3 · keep 100% Dense)"
+_RECIPE_CUSTOM = "custom"
+_RECIPE_LIST = (_RECIPE_4STEP, _RECIPE_8STEP_V2, _RECIPE_STEP3, _RECIPE_CUSTOM)
+
+_RECIPE_LADDER = {
+    _RECIPE_4STEP: "999,749,500,250",
+    _RECIPE_8STEP_V2: "999,874,749,624,500,375,250,125",
+    _RECIPE_STEP3: "999,750,500",
+}
+_RECIPE_SHIFT_V = {_RECIPE_4STEP: 12.0, _RECIPE_8STEP_V2: 10.0, _RECIPE_STEP3: 12.0}
+_RECIPE_SHIFT_A = {_RECIPE_4STEP: 3.0, _RECIPE_8STEP_V2: 3.0, _RECIPE_STEP3: 3.0}
+_RECIPE_KEEP = {_RECIPE_4STEP: 10.0, _RECIPE_8STEP_V2: 20.0, _RECIPE_STEP3: 100.0}
+
+
+class BSAI_StepScheduleConfig(ComfyNodeABC):
+    """Single step-schedule dropdown that feeds VedaSparse / Timesteps / EulerSampler.
+
+    Right-click the 'recipe' widget on each FastH3 consumer node → Convert to Input,
+    then wire from this node's 'recipe' output.
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "recipe": (list(_RECIPE_LIST), {
+                    "default": _RECIPE_8STEP_V2,
+                    "tooltip": "一键预设步数配方。改这里，同时驱动 VedaSparse + Timesteps + EulerSampler。",
+                }),
+                "custom_ladder": ("STRING", {
+                    "default": "",
+                    "multiline": False,
+                    "tooltip": "recipe=custom 时使用，例如 999,749,500,250",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "FLOAT", "FLOAT", "FLOAT")
+    RETURN_NAMES = ("recipe", "ladder", "shift_video", "shift_audio", "keep_percent")
+    FUNCTION = "run"
+    CATEGORY = "BSAI"
+    OUTPUT_NODE = False
+    DESCRIPTION = "单一步数配方配置节点：一个下拉框同时驱动 VedaSparse / Timesteps / EulerSampler 的 recipe 参数。"
+
+    def run(self, recipe, custom_ladder=""):
+        ladder = _RECIPE_LADDER.get(recipe, custom_ladder or "999,749,500,250")
+        sv = _RECIPE_SHIFT_V.get(recipe, 12.0)
+        sa = _RECIPE_SHIFT_A.get(recipe, 3.0)
+        keep = _RECIPE_KEEP.get(recipe, 20.0)
+        print(f"[BSAI_StepScheduleConfig] recipe={recipe}", flush=True)
+        print(f"  ladder={ladder}  shift_v={sv}  shift_a={sa}  keep={keep}%", flush=True)
+        return (recipe, ladder, sv, sa, keep)
+
+
 NODE_CLASS_MAPPINGS = {
     "BSAI_MultiplePathsInputPlus": BSAI_MultiplePathsInputPlus,
     "BSAI_VideoLoaderPlus": BSAI_VideoLoaderPlus,
@@ -1198,6 +1254,7 @@ NODE_CLASS_MAPPINGS = {
     "BSAI_QwenPromptInference": BSAI_QwenPromptInference,
     "BSAI_QwenMultimodalInference": BSAI_QwenMultimodalInference,
     "BSAI_QwenUnloadModel": BSAI_QwenUnloadModel,
+    "BSAI_StepScheduleConfig": BSAI_StepScheduleConfig,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1207,4 +1264,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BSAI_QwenPromptInference": "BSAI Qwen Prompt Inference",
     "BSAI_QwenMultimodalInference": "BSAI Qwen Multimodal Inference",
     "BSAI_QwenUnloadModel": "BSAI Qwen Unload Model",
+    "BSAI_StepScheduleConfig": "BSAI Step Schedule Config (步数配方)",
 }
