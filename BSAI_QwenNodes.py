@@ -139,9 +139,94 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
 
     CATEGORY = "BSAI"
 
-    RETURN_TYPES = (IO.VIDEO, "PATH", "INT")
-    RETURN_NAMES = ("video", "path", "total_frames")
+    RETURN_TYPES = (IO.VIDEO, IO.VIDEO, "IMAGE", "PATH", "INT", "INT", "IMAGE", "AUDIO")
+    RETURN_NAMES = ("video", "single_frame", "single_frame_image", "path", "total_frames", "current_frame", "frames (H3视频帧)", "audio (H3音频)")
     FUNCTION = "load_video_plus"
+
+    def _read_frame_at(self, video_path, target_frame):
+        """精确读取指定帧号的帧。
+        策略：先跳到目标帧前的关键帧附近，再逐帧 grab 到目标帧，确保帧号 100% 准确。
+        返回 (frame_bgr, actual_frame_index)
+        """
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"无法打开视频: {video_path}")
+
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        target = max(0, min(int(target_frame), total - 1))
+
+        # 快速定位到目标帧之前（往前多跳一些，确保落在关键帧之前）
+        seek_target = max(0, target - 60)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, seek_target)
+
+        # 获取 set 之后的实际位置（可能不准）
+        actual_pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+
+        # 逐帧 grab 到目标帧
+        grabbed = 0
+        while actual_pos < target:
+            if not cap.grab():
+                break
+            actual_pos += 1
+            grabbed += 1
+
+        # 读取目标帧
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret or frame is None:
+            # 如果失败，退回用简单方式读第一帧
+            cap2 = cv2.VideoCapture(video_path)
+            ret2, frame2 = cap2.read()
+            cap2.release()
+            if not ret2:
+                raise ValueError(f"无法读取视频帧 (目标帧 {target})")
+            return frame2, 0
+
+        return frame, target
+
+    def _get_silent_audio(self, video_path, frame_rate, duration_frames=1):
+        """从源视频读取音频信息，生成对应时长的静音音频。
+        如果源视频没有音频，返回 None。
+        """
+        import torch
+        try:
+            import av
+            try:
+                container = av.open(video_path)
+            except Exception:
+                return None
+
+            audio_stream = None
+            for stream in container.streams:
+                if stream.type == "audio":
+                    audio_stream = stream
+                    break
+
+            if audio_stream is None:
+                container.close()
+                return None
+
+            sample_rate = audio_stream.sample_rate
+            channels = audio_stream.channels
+            layout_name = audio_stream.layout.name if audio_stream.layout else ("stereo" if channels >= 2 else "mono")
+            container.close()
+
+            # 生成静音音频
+            duration_sec = duration_frames / frame_rate
+            num_samples = int(sample_rate * duration_sec)
+            if num_samples < 1:
+                num_samples = 1
+
+            waveform = torch.zeros(1, channels, num_samples, dtype=torch.float32)
+
+            from comfy_api.latest import Types
+            return Types.AudioComponents(
+                waveform=waveform,
+                sample_rate=sample_rate,
+            )
+        except Exception:
+            return None
 
     def load_video_plus(self, file, frame_rate=30.0, start_frame=0, end_frame=-1, loop=False,
                         resize_width=0, resize_height=0, output_mode="完整视频", frame_index=0):
@@ -149,50 +234,158 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
         
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+        if actual_fps <= 0:
+            actual_fps = frame_rate
         cap.release()
         
-        if end_frame < 0:
+        if end_frame < 0 or end_frame > total_frames:
             end_frame = total_frames
+        start_frame = max(0, min(start_frame, total_frames - 1))
 
-        if output_mode == "选中单帧":
-            # 提取指定帧，生成单帧视频
-            idx = max(0, min(int(frame_index), total_frames - 1))
-            cap = cv2.VideoCapture(video_path)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = cap.read()
-            cap.release()
-            if not ret:
-                raise ValueError(f"无法读取第 {idx} 帧")
-            
-            # BGR -> RGB, 转为 torch tensor
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            # 可选缩放
-            if resize_width > 0 and resize_height > 0:
-                frame_rgb = cv2.resize(frame_rgb, (resize_width, resize_height))
-            frame_tensor = torch.from_numpy(frame_rgb).float() / 255.0
-            # 添加 batch 维度 -> [1, H, W, C]
-            frame_tensor = frame_tensor.unsqueeze(0)
+        from comfy_api.latest import Types
 
-            # 使用 VideoComponents 创建单帧视频
-            from comfy_api.latest import Types
-            single_video = InputImpl.VideoFromComponents(
-                Types.VideoComponents(
-                    images=frame_tensor,
-                    frame_rate=frame_rate,
-                    audio=None,
-                ),
-                bit_depth=8,
-                color_space="sRGB",
-            )
-            return (single_video, video_path, total_frames)
-        
-        return (InputImpl.VideoFromFile(video_path), video_path, total_frames)
+        # ============================================================
+        # 1号端口：video —— 永远输出完整视频（不受 start/end 影响）
+        # ============================================================
+        main_video = InputImpl.VideoFromFile(video_path)
+
+        # ============================================================
+        # 2号端口：single_frame —— 输出选中的单帧视频
+        # ============================================================
+        frame_bgr_single, single_idx = self._read_frame_at(video_path, frame_index)
+        frame_rgb_single = cv2.cvtColor(frame_bgr_single, cv2.COLOR_BGR2RGB)
+        if resize_width > 0 and resize_height > 0:
+            frame_rgb_single = cv2.resize(frame_rgb_single, (resize_width, resize_height))
+        frame_tensor_single = torch.from_numpy(frame_rgb_single).float() / 255.0
+        frame_tensor_single = frame_tensor_single.unsqueeze(0)
+
+        silent_audio_single = self._get_silent_audio(video_path, frame_rate, duration_frames=1)
+        single_frame_video = InputImpl.VideoFromComponents(
+            Types.VideoComponents(
+                images=frame_tensor_single,
+                frame_rate=frame_rate,
+                audio=silent_audio_single,
+            ),
+            bit_depth=8,
+            color_space="sRGB",
+        )
+
+        # ============================================================
+        # 3号端口：single_frame_image —— 单帧图片
+        # ============================================================
+        single_image = frame_tensor_single.clone()
+
+        # ============================================================
+        # 7号端口：frames (H3视频帧) —— 只输出 start~end 区间的帧序列
+        # ============================================================
+        def read_clip_frames():
+            """读取 start_frame 到 end_frame（含两端）的帧序列。
+            使用精确定位策略：先 seek 到起始帧附近，再逐帧读取，确保帧号 100% 准确。
+            """
+            cap2 = cv2.VideoCapture(video_path)
+            if not cap2.isOpened():
+                raise ValueError(f"无法打开视频: {video_path}")
+
+            total = int(cap2.get(cv2.CAP_PROP_FRAME_COUNT))
+            s = max(0, min(int(start_frame), total - 1))
+            e = max(0, min(int(end_frame), total - 1))
+            if e < s:
+                e = s
+
+            # 先粗跳到起始帧之前（往前多跳一些，确保落在关键帧之前）
+            seek_target = max(0, s - 60)
+            cap2.set(cv2.CAP_PROP_POS_FRAMES, seek_target)
+            actual_pos = int(cap2.get(cv2.CAP_PROP_POS_FRAMES))
+
+            # 逐帧 grab 到起始帧位置
+            while actual_pos < s:
+                if not cap2.grab():
+                    break
+                actual_pos += 1
+
+            # 从起始帧读到结束帧（包含两端）
+            frames_list = []
+            current = actual_pos
+            while current <= e:
+                ret, frame = cap2.read()
+                if not ret:
+                    break
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                if resize_width > 0 and resize_height > 0:
+                    frame_rgb = cv2.resize(frame_rgb, (resize_width, resize_height))
+                frames_list.append(frame_rgb)
+                current += 1
+
+            cap2.release()
+
+            if len(frames_list) == 0:
+                # 兜底：至少返回一帧
+                fallback, _ = self._read_frame_at(video_path, s)
+                fallback_rgb = cv2.cvtColor(fallback, cv2.COLOR_BGR2RGB)
+                if resize_width > 0 and resize_height > 0:
+                    fallback_rgb = cv2.resize(fallback_rgb, (resize_width, resize_height))
+                frames_list.append(fallback_rgb)
+
+            frames_np = np.stack(frames_list, axis=0)
+            return torch.from_numpy(frames_np).float() / 255.0
+
+        frames_out = read_clip_frames()
+
+        # ============================================================
+        # 8号端口：audio —— 只输出 start~end 区间的音频（含两端，与视频帧数对应）
+        # ============================================================
+        audio_out = None
+        try:
+            import av as _av
+            container = _av.open(video_path)
+            audio_stream = None
+            for s in container.streams.audio:
+                if s.codec_context is not None:
+                    audio_stream = s
+                    break
+            if audio_stream is not None:
+                resampler = _av.audio.resampler.AudioResampler(format='fltp', layout='stereo')
+                audio_chunks = []
+                for frame in container.decode(audio_stream):
+                    resampled = resampler.resample(frame)
+                    for rf in resampled:
+                        arr = rf.to_ndarray()  # shape: (channels, samples) for fltp
+                        audio_chunks.append(arr)
+                container.close()
+                if audio_chunks:
+                    import numpy as _np
+                    import torch as _torch
+                    audio_data = _np.concatenate(audio_chunks, axis=-1)  # (channels, total_samples)
+                    sample_rate = int(audio_stream.sample_rate)
+                    waveform = _torch.from_numpy(audio_data).unsqueeze(0)  # (1, channels, total_samples)
+
+                    total = int(cv2.VideoCapture(video_path).get(cv2.CAP_PROP_FRAME_COUNT))
+                    s = max(0, min(int(start_frame), total - 1))
+                    e = max(0, min(int(end_frame), total - 1))
+                    if e < s:
+                        e = s
+
+                    start_sec = s / actual_fps
+                    end_sec = (e + 1) / actual_fps
+                    start_sample = int(start_sec * sample_rate)
+                    end_sample = int(end_sec * sample_rate)
+
+                    if start_sample < waveform.shape[-1]:
+                        end_sample = min(end_sample, waveform.shape[-1])
+                        clipped = waveform[:, :, start_sample:end_sample]
+                        audio_out = {"waveform": clipped, "sample_rate": sample_rate}
+        except Exception as e:
+            print(f"[BSAI VideoLoaderPlus] 音频提取失败 / Audio extraction failed: {e}")
+            audio_out = None
+
+        return (main_video, single_frame_video, single_image, video_path, total_frames, single_idx, frames_out, audio_out)
 
     @classmethod
-    def IS_CHANGED(cls, file, output_mode="完整视频", frame_index=0, **kwargs):
+    def IS_CHANGED(cls, file, output_mode="完整视频", frame_index=0, start_frame=0, end_frame=-1, **kwargs):
         video_path = folder_paths.get_annotated_filepath(file)
         mod_time = os.path.getmtime(video_path)
-        return f"{mod_time}_{output_mode}_{frame_index}"
+        return f"{mod_time}_{output_mode}_{frame_index}_{start_frame}_{end_frame}"
 
     @classmethod
     def VALIDATE_INPUTS(cls, file, **kwargs):
