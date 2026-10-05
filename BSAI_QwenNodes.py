@@ -1235,7 +1235,10 @@ class BSAI_StepScheduleConfig(ComfyNodeABC):
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "FLOAT", "FLOAT", "FLOAT")
+    RETURN_TYPES = (
+        (_RECIPE_4STEP, _RECIPE_8STEP_V2, _RECIPE_STEP3, _RECIPE_CUSTOM),
+        "STRING", "FLOAT", "FLOAT", "FLOAT"
+    )
     RETURN_NAMES = ("recipe", "ladder", "shift_video", "shift_audio", "keep_percent")
     FUNCTION = "run"
     CATEGORY = "BSAI"
