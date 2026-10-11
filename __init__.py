@@ -23,6 +23,7 @@ modules = [
     "BSAI_AudioDurationToFrames",
     "BSAI_PIPMultiLayer",
     "BSAI_MergeImages",
+    "BSAI_NineGridMosaic",
     "BSAI_Krea2Nodes",
     "BSAI_ComfyUI_lingbot_video",
     "BSAI_DrawTextOverlay",
