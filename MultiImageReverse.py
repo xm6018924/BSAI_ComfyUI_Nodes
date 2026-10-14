@@ -40,8 +40,8 @@ try:
         except Exception as e:
             models = [model['name'] for model in models]
             return web.json_response(models)
-except ImportError:
-    # 独立测试时跳过server相关代码
+except Exception:
+    # 独立测试或 PromptServer 未就绪时跳过 server 相关代码
     pass
 
 class BSAI_MultiImageVideoReverse:
