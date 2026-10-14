@@ -780,6 +780,55 @@ def _bsai_reset_llm_state(llm):
         pass
 
 
+# ---------------------------------------------------------------------------
+# BSAI Strata HTTP backend: drop-in replacement for llama_cpp.Llama when the
+# user runs Qwen3.8-Flash-Next via the Strata server at 127.0.0.1:8080.
+# ---------------------------------------------------------------------------
+class _BSAI_StrataHTTPBackend:
+    """Mimics the subset of Llama used by BSAI_QwenPromptInference:
+    .create_chat_completion(messages=..., **params) and .n_ctx."""
+
+    DEFAULT_BASE = "http://127.0.0.1:8080/v1"
+    DEFAULT_MODEL = "qwen3.8-flash-next"
+
+    def __init__(self, base_url=None, model=None, n_ctx=32768):
+        self.base_url = (base_url or self.DEFAULT_BASE).rstrip("/")
+        self.model = model or self.DEFAULT_MODEL
+        self.n_ctx = n_ctx
+
+    def create_chat_completion(self, messages=None, **kwargs):
+        import json as _json
+        import socket as _sk, http.client as _hc
+        from urllib.parse import urlparse as _up
+        payload = {
+            "model": self.model,
+            "messages": messages or [],
+            "max_tokens": kwargs.get("max_tokens", 1024),
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "stream": False,
+        }
+        for k in ("frequency_penalty", "presence_penalty", "seed"):
+            if k in kwargs and kwargs[k] is not None:
+                payload[k] = kwargs[k]
+        data = _json.dumps(payload).encode("utf-8")
+        u = _up(self.base_url)
+        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+        s.settimeout(600); s.setblocking(True)
+        s.connect((u.hostname, u.port or 80))
+        try:
+            conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+            conn.sock = s
+            conn.request("POST", u.path + "/chat/completions", body=data,
+                         headers={"Content-Type": "application/json", "Authorization": "Bearer strata"})
+            return _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+        finally:
+            s.close()
+
+    def close(self):
+        pass
+
+
 class BSAI_QwenModelLoader:
     @classmethod
     def INPUT_TYPES(s):
@@ -792,6 +841,9 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
+                "推理后端": (["llama.cpp (本地加载GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)"],
+                          {"default": "llama.cpp (本地加载GGUF)",
+                           "tooltip": "Strata 后端不需要选主模型/mmproj，走 HTTP 调用本地 Strata 服务"}),
                 "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "主模型": (model_list, {"tooltip": "主模型文件（建议 .gguf）放到 ComfyUI/models/LLM/"}),
                 "视觉投影mmproj": (mmproj_list, {"default": "无", "tooltip": "多模态需要 mmproj；纯文本可选“无”。"}),
@@ -806,7 +858,11 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数):
+    def load(self, 推理后端, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数):
+        # --- Strata HTTP backend: skip llama.cpp loading entirely ---
+        if str(推理后端).startswith("BSAI Strata"):
+            return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度)),)
+
         if 主模型.startswith("（请把模型放到"):
             raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
 
@@ -1068,6 +1124,28 @@ class BSAI_QwenMultimodalInference:
             raise ValueError("输入文本和所有图像/视频不能同时为空。")
         if prompt_text:
             content_items.append({"type": "text", "text": prompt_text})
+
+        # If we are on the Strata HTTP backend, convert local file:// image URLs to
+        # base64 data URLs (OpenAI-compatible / Strata mmproj cannot read local paths).
+        if isinstance(llm, _BSAI_StrataHTTPBackend):
+            import base64 as _b64
+            converted = []
+            for item in content_items:
+                if item.get("type") == "image_url":
+                    url = item["image_url"]["url"]
+                    if url.startswith("file://"):
+                        try:
+                            local = url[7:]
+                            with open(local, "rb") as _f:
+                                b = _b64.b64encode(_f.read()).decode("ascii")
+                            ext = os.path.splitext(local)[1].lower().lstrip(".")
+                            mime = "jpeg" if ext in ("jpg", "jpeg") else ("png" if ext == "png" else "jpeg")
+                            item = {"type": "image_url",
+                                    "image_url": {"url": f"data:image/{mime};base64,{b}"}}
+                        except Exception:
+                            pass
+                converted.append(item)
+            content_items = converted
 
         messages = []
         system_text = (系统提示词 or "").strip()
