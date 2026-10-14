@@ -52,6 +52,9 @@ class BSAI_MultiImageVideoReverse:
     def INPUT_TYPES(s):
         return {
             "required": {
+                "backend": (["Ollama (本地 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)"],
+                            {"default": "Ollama (本地 11434)",
+                             "tooltip": "推理后端：Ollama 或 BSAI Strata HTTP"}),
                 "system": ("STRING", {
                     "multiline": True,
                     "default": "你是一位专业的图像和视频分析专家，擅长从多张图像和视频帧中分析并提取共同特征和主题。请详细分析以下内容，提取关键元素、风格、色彩、构图等信息，并生成详细的描述。",
@@ -190,13 +193,23 @@ class BSAI_MultiImageVideoReverse:
         
         return images_b64
 
-    def multi_media_reverse(self, system, prompt, model, url, custom_model="",
+    def multi_media_reverse(self, backend, system, prompt, model, url, custom_model="",
                           image1=None, image2=None, image3=None, image4=None, image5=None,
                           image6=None, image7=None, image8=None, image9=None, image10=None,
                           video1=None, video2=None, video3=None, video4=None, video5=None,
                           video_sample_interval=10, max_frames_per_video=5,
                           temperature=0.7, top_p=0.9, max_tokens=32768):
-        
+
+        # ---- BSAI Strata HTTP backend (OpenAI-compatible) ----
+        if str(backend).lower().startswith("bsai strata"):
+            return self._reverse_via_strata(
+                system, prompt, image1, image2, image3, image4, image5,
+                image6, image7, image8, image9, image10,
+                video1, video2, video3, video4, video5,
+                video_sample_interval, max_frames_per_video,
+                temperature, top_p, max_tokens,
+            )
+
         # 确定使用的模型
         if model == "custom" and custom_model:
             selected_model = custom_model
@@ -273,6 +286,68 @@ class BSAI_MultiImageVideoReverse:
             import traceback
             traceback.print_exc()
             return error_msg, "", []
+
+    def _reverse_via_strata(self, system, prompt,
+                            image1, image2, image3, image4, image5,
+                            image6, image7, image8, image9, image10,
+                            video1, video2, video3, video4, video5,
+                            video_sample_interval, max_frames_per_video,
+                            temperature, top_p, max_tokens):
+        """OpenAI-compatible chat.completions call to local Strata (Qwen3.8-Flash-Next)."""
+        import json as _json
+
+        # collect all images (already base64 PNG)
+        images_b64 = []
+        for img in [image1, image2, image3, image4, image5, image6, image7, image8, image9, image10]:
+            if img is not None:
+                images_b64.extend(self._process_image_tensor(img))
+        for vid in [video1, video2, video3, video4, video5]:
+            if vid is not None:
+                images_b64.extend(self._process_video_tensor(vid, video_sample_interval, max_frames_per_video))
+
+        if not images_b64:
+            return "没有有效的图像或视频输入", "", []
+
+        # build OpenAI multimodal content
+        content = [{"type": "text", "text": prompt}]
+        for b64 in images_b64:
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        body = {
+            "model": "qwen3.8-flash-next",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+            "max_tokens": int(max_tokens),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "stream": False,
+        }
+        try:
+            import socket as _sk, http.client as _hc
+            s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+            s.settimeout(600); s.setblocking(True)
+            s.connect(("127.0.0.1", 8080))
+            try:
+                conn = _hc.HTTPConnection("127.0.0.1", 8080, timeout=600)
+                conn.sock = s
+                conn.request("POST", "/v1/chat/completions",
+                             body=_json.dumps(body).encode("utf-8"),
+                             headers={"Content-Type": "application/json", "Authorization": "Bearer strata"})
+                out = _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+            finally:
+                s.close()
+            text = out["choices"][0]["message"]["content"]
+            thinking = ""
+            prompt_list = [l.strip() for l in text.split("\n") if l.strip()]
+            return text, thinking, prompt_list
+        except Exception as e:
+            err = f"[BSAI Strata 反推失败] {type(e).__name__}: {e} (is Strata running at 127.0.0.1:8080?)"
+            print(err)
+            return err, "", []
+
 
 NODE_CLASS_MAPPINGS = {
     "BSAI_MultiImageVideoReverse": BSAI_MultiImageVideoReverse,
