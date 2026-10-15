@@ -1,5 +1,9 @@
-// BSAI Qwen Model Loader - 后端切换时动态显隐参数
-// 参考 BSAI-Qwen-Prompt-Enhancer 的实现
+/**
+ * BSAI Qwen Model Loader - 后端切换时动态显隐参数
+ * 参考 BSAI-Qwen-Prompt-Enhancer 的实现
+ */
+
+import { app } from "../../../scripts/app.js";
 
 // 公共参数：两个后端始终可见
 const COMMON_WIDGETS = [
