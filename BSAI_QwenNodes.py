@@ -985,6 +985,10 @@ class BSAI_QwenPromptInference:
         except Exception:
             text = str(out)
 
+        # Strata HTTP 可能返回 None，兜底为空字符串
+        if text is None:
+            text = ""
+
         if 推理后自动卸载:
             _BSAI_QwenStorage.unload()
 
@@ -1224,6 +1228,10 @@ class BSAI_QwenMultimodalInference:
             text = out["choices"][0]["message"]["content"]
         except Exception:
             text = str(out)
+
+        # Strata HTTP 可能返回 None，兜底为空字符串
+        if text is None:
+            text = ""
 
         if 推理后自动卸载:
             _BSAI_QwenStorage.unload()
