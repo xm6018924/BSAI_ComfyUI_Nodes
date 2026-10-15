@@ -801,6 +801,7 @@ class _BSAI_StrataHTTPBackend:
         import json as _json
         import socket as _sk, http.client as _hc
         from urllib.parse import urlparse as _up
+        import time as _time
 
         max_tokens_val = kwargs.get("max_tokens", 4096)
 
@@ -819,9 +820,55 @@ class _BSAI_StrataHTTPBackend:
                 payload[k] = kwargs[k]
         data = _json.dumps(payload).encode("utf-8")
         u = _up(self.base_url)
-        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
-        s.settimeout(600); s.setblocking(True)
-        s.connect((u.hostname, u.port or 80))
+
+        def _try_connect():
+            s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+            s.settimeout(600); s.setblocking(True)
+            s.connect((u.hostname, u.port or 80))
+            return s
+
+        # 第一次尝试
+        try:
+            s = _try_connect()
+        except Exception as e:
+            print(f"[BSAI] Strata 连接失败，正在自动启动服务... ({e})")
+            # 尝试调用 ComfyUI API 启动 Strata
+            started = False
+            for port in [8188, 8191, 8000]:
+                try:
+                    import urllib.request as _urllib
+                    url = f"http://127.0.0.1:{port}/bsai/strata/start"
+                    req = _urllib.request.Request(url)
+                    with _urllib.request.urlopen(req, timeout=5) as resp:
+                        result = _json.loads(resp.read().decode())
+                        if result.get("ok"):
+                            print(f"[BSAI] Strata 启动成功 (pid={result.get('pid')})")
+                            started = True
+                            break
+                except Exception:
+                    continue
+
+            if not started:
+                raise ConnectionError(
+                    f"无法连接 Strata 服务 ({self.base_url})，自动启动也失败。\n"
+                    "请先运行 START-HERE.bat 启动 Strata 服务，再运行工作流。"
+                )
+
+            # 等待服务就绪
+            print("[BSAI] 等待 Strata 服务就绪...")
+            for i in range(30):
+                _time.sleep(2)
+                try:
+                    s = _try_connect()
+                    print(f"[BSAI] Strata 服务已就绪")
+                    break
+                except Exception:
+                    if i == 29:
+                        raise ConnectionError("Strata 服务启动超时（60秒），请检查日志。")
+                    continue
+            else:
+                raise ConnectionError("Strata 服务启动超时。")
+
         try:
             conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
             conn.sock = s
