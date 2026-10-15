@@ -67,18 +67,18 @@ class BSAI_MultiImageVideoReverse:
                     "default": "请详细分析这些图像和视频帧，包括所有细节，并生成一个综合描述。",
                     "tooltip": "用户提示词 - 你希望模型执行的任务"
                 }),
+            },
+            "optional": {
                 "model": (["qwen3:latest", "qwen3.5:latest", "qwen3.6:latest", "qwen3.8:latest", "gemma4:31b", "custom"],
-                          {"default": "qwen3.8:latest", "tooltip": "选择一个Ollama模型进行推理"}),
+                          {"default": "qwen3.8:latest", "tooltip": "Ollama 模型选择（仅 Ollama 后端生效）"}),
                 "url": ("STRING", {
                     "default": "http://127.0.0.1:11434",
-                    "tooltip": "Ollama服务器的URL。默认值指向本地实例，使用ollama的默认端口配置。"
+                    "tooltip": "Ollama服务器的URL（仅 Ollama 后端生效）"
                 }),
                 "custom_model": ("STRING", {
                     "default": "",
                     "tooltip": "自定义模型名称（当选择custom时使用）"
                 }),
-            },
-            "optional": {
                 # 图像输入（最多10张）
                 "image1": ("IMAGE", {"forceInput": False, "tooltip": "第一张输入图像"}),
                 "image2": ("IMAGE", {"forceInput": False, "tooltip": "第二张输入图像"}),
@@ -195,7 +195,7 @@ class BSAI_MultiImageVideoReverse:
         
         return images_b64
 
-    def multi_media_reverse(self, backend, strata_quant, system, prompt, model, url, custom_model="",
+    def multi_media_reverse(self, backend, strata_quant, system, prompt, model="qwen3.8:latest", url="http://127.0.0.1:11434", custom_model="",
                           image1=None, image2=None, image3=None, image4=None, image5=None,
                           image6=None, image7=None, image8=None, image9=None, image10=None,
                           video1=None, video2=None, video3=None, video4=None, video5=None,
