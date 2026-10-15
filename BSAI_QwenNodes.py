@@ -791,10 +791,11 @@ class _BSAI_StrataHTTPBackend:
     DEFAULT_BASE = "http://127.0.0.1:8080/v1"
     DEFAULT_MODEL = "qwen3.8-flash-next"
 
-    def __init__(self, base_url=None, model=None, n_ctx=32768):
+    def __init__(self, base_url=None, model=None, n_ctx=32768, quant_label=None):
         self.base_url = (base_url or self.DEFAULT_BASE).rstrip("/")
         self.model = model or self.DEFAULT_MODEL
         self.n_ctx = n_ctx
+        self.quant_label = quant_label
 
     def create_chat_completion(self, messages=None, **kwargs):
         import json as _json
@@ -839,11 +840,15 @@ class BSAI_QwenModelLoader:
         if not model_list:
             model_list = ["（请把模型放到 models/LLM）"]
 
+        # Strata quant options
+        strata_quants = ["Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"]
+
         return {
             "required": {
                 "推理后端": (["llama.cpp (本地加载GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)"],
                           {"default": "llama.cpp (本地加载GGUF)",
                            "tooltip": "Strata 后端不需要选主模型/mmproj，走 HTTP 调用本地 Strata 服务"}),
+                "模型挡位": (strata_quants, {"default": "Auto (自动适配)", "tooltip": "仅 Strata 后端生效：选择量化级别，Auto 自动选最快的"}),
                 "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "主模型": (model_list, {"tooltip": "主模型文件（建议 .gguf）放到 ComfyUI/models/LLM/"}),
                 "视觉投影mmproj": (mmproj_list, {"default": "无", "tooltip": "多模态需要 mmproj；纯文本可选“无”。"}),
@@ -858,10 +863,19 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, 推理后端, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数):
+    def load(self, 推理后端, 模型挡位, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数):
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
         if str(推理后端).startswith("BSAI Strata"):
-            return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度)),)
+            # Parse quant label
+            quant_map = {
+                "Auto (自动适配)": None,
+                "Q2_0 (最快)": "Q2_0",
+                "IQ2_XS (略好)": "IQ2_XS",
+                "IQ3_XXS (更好)": "IQ3_XXS",
+                "IQ3_S (最好)": "IQ3_S",
+            }
+            quant = quant_map.get(模型挡位, None)
+            return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度), quant_label=quant),)
 
         if 主模型.startswith("（请把模型放到"):
             raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
