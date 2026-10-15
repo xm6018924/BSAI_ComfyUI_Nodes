@@ -55,6 +55,8 @@ class BSAI_MultiImageVideoReverse:
                 "backend": (["Ollama (本地 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)"],
                             {"default": "Ollama (本地 11434)",
                              "tooltip": "推理后端：Ollama 或 BSAI Strata HTTP"}),
+                "strata_quant": (["Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"],
+                            {"default": "Auto (自动适配)", "tooltip": "仅 Strata 后端生效：选择量化级别，Auto 自动选最快的"}),
                 "system": ("STRING", {
                     "multiline": True,
                     "default": "你是一位专业的图像和视频分析专家，擅长从多张图像和视频帧中分析并提取共同特征和主题。请详细分析以下内容，提取关键元素、风格、色彩、构图等信息，并生成详细的描述。",
@@ -193,7 +195,7 @@ class BSAI_MultiImageVideoReverse:
         
         return images_b64
 
-    def multi_media_reverse(self, backend, system, prompt, model, url, custom_model="",
+    def multi_media_reverse(self, backend, strata_quant, system, prompt, model, url, custom_model="",
                           image1=None, image2=None, image3=None, image4=None, image5=None,
                           image6=None, image7=None, image8=None, image9=None, image10=None,
                           video1=None, video2=None, video3=None, video4=None, video5=None,
@@ -208,6 +210,7 @@ class BSAI_MultiImageVideoReverse:
                 video1, video2, video3, video4, video5,
                 video_sample_interval, max_frames_per_video,
                 temperature, top_p, max_tokens,
+                quant_label=strata_quant,
             )
 
         # 确定使用的模型
@@ -292,9 +295,23 @@ class BSAI_MultiImageVideoReverse:
                             image6, image7, image8, image9, image10,
                             video1, video2, video3, video4, video5,
                             video_sample_interval, max_frames_per_video,
-                            temperature, top_p, max_tokens):
+                            temperature, top_p, max_tokens,
+                            quant_label=None):
         """OpenAI-compatible chat.completions call to local Strata (Qwen3.8-Flash-Next)."""
         import json as _json
+
+        # Auto-start Strata if not running
+        try:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            if os.path.exists(_p):
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                ok, msg = _m.StrataManager.ensure_running(quant_label=quant_label)
+                print(f"[BSAI_MultiImageReverse] Strata 自动启动: {ok} ({msg})")
+        except Exception as _e:
+            print(f"[BSAI_MultiImageReverse] Strata 自动启动跳过: {_e}")
 
         # collect all images (already base64 PNG)
         images_b64 = []
