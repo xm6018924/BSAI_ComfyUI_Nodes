@@ -849,11 +849,13 @@ class BSAI_QwenModelLoader:
                           {"default": "llama.cpp (本地加载GGUF)",
                            "tooltip": "Strata 后端不需要选主模型/mmproj，走 HTTP 调用本地 Strata 服务"}),
                 "模型挡位": (strata_quants, {"default": "Auto (自动适配)", "tooltip": "仅 Strata 后端生效：选择量化级别，Auto 自动选最快的"}),
+                "启用思考": ("BOOLEAN", {"default": False}),
+                "上下文长度": ("INT", {"default": 16384, "min": 1024, "max": 327680, "step": 256}),
+            },
+            "optional": {
                 "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "主模型": (model_list, {"tooltip": "主模型文件（建议 .gguf）放到 ComfyUI/models/LLM/"}),
                 "视觉投影mmproj": (mmproj_list, {"default": "无", "tooltip": "多模态需要 mmproj；纯文本可选“无”。"}),
-                "启用思考": ("BOOLEAN", {"default": False}),
-                "上下文长度": ("INT", {"default": 16384, "min": 1024, "max": 327680, "step": 256}),
                 "GPU层数": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
             }
         }
@@ -863,7 +865,7 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, 推理后端, 模型挡位, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数):
+    def load(self, 推理后端, 模型挡位, 启用思考, 上下文长度, 模型系列="Qwen3.8-VL", 主模型=None, 视觉投影mmproj="无", GPU层数=-1):
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
         if str(推理后端).startswith("BSAI Strata"):
             # Parse quant label
@@ -877,7 +879,7 @@ class BSAI_QwenModelLoader:
             quant = quant_map.get(模型挡位, None)
             return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度), quant_label=quant),)
 
-        if 主模型.startswith("（请把模型放到"):
+        if 主模型 is None or 主模型.startswith("（请把模型放到"):
             raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
 
         if 模型系列 in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
