@@ -1248,14 +1248,19 @@ class BSAI_QwenMultimodalInference:
                     url = item["image_url"]["url"]
                     if url.startswith("file://"):
                         try:
+                            # Fix Windows file:///C:/... format: strip leading slash after file://
                             local = url[7:]
+                            if local.startswith("/"):
+                                local = local[1:]
                             with open(local, "rb") as _f:
                                 b = _b64.b64encode(_f.read()).decode("ascii")
                             ext = os.path.splitext(local)[1].lower().lstrip(".")
                             mime = "jpeg" if ext in ("jpg", "jpeg") else ("png" if ext == "png" else "jpeg")
                             item = {"type": "image_url",
                                     "image_url": {"url": f"data:image/{mime};base64,{b}"}}
-                        except Exception:
+                        except Exception as e:
+                            import logging
+                            logging.warning(f"[BSAI] Failed to convert image to base64: {e}, url={url}")
                             pass
                 converted.append(item)
             content_items = converted
