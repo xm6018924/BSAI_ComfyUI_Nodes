@@ -880,6 +880,49 @@ class BSAI_QwenModelLoader:
                 "IQ3_S (最好)": "IQ3_S",
             }
             quant = quant_map.get(模型挡位, None)
+
+            # 自动检查并启动 Strata 服务
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2)
+                result = s.connect_ex(("127.0.0.1", 8080))
+                s.close()
+                if result != 0:
+                    print("[BSAI] Strata 服务未运行，正在自动启动...")
+                    # 调用 ComfyUI API 启动 Strata
+                    try:
+                        import urllib.request
+                        import json
+                        # 尝试常见端口
+                        for port in [8188, 8191, 8000]:
+                            try:
+                                url = f"http://127.0.0.1:{port}/bsai/strata/start"
+                                req = urllib.request.Request(url)
+                                with urllib.request.urlopen(req, timeout=5) as resp:
+                                    data = json.loads(resp.read().decode())
+                                    if data.get("ok"):
+                                        print(f"[BSAI] Strata 服务启动成功 (pid={data.get('pid')})")
+                                        # 等待服务启动
+                                        import time
+                                        for i in range(30):
+                                            time.sleep(2)
+                                            s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                            s2.settimeout(2)
+                                            r2 = s2.connect_ex(("127.0.0.1", 8080))
+                                            s2.close()
+                                            if r2 == 0:
+                                                print("[BSAI] Strata 服务已就绪")
+                                                break
+                                        break
+                            except Exception:
+                                continue
+                    except Exception as e:
+                        print(f"[BSAI] 自动启动 Strata 失败: {e}")
+                        print("[BSAI] 请手动运行 START-HERE.bat 启动 Strata 服务")
+            except Exception:
+                pass
+
             return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度), quant_label=quant),)
 
         if 主模型 is None or 主模型.startswith("（请把模型放到"):
