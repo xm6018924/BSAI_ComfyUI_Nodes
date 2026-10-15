@@ -801,13 +801,18 @@ class _BSAI_StrataHTTPBackend:
         import json as _json
         import socket as _sk, http.client as _hc
         from urllib.parse import urlparse as _up
+
+        max_tokens_val = kwargs.get("max_tokens", 4096)
+
         payload = {
             "model": self.model,
             "messages": messages or [],
-            "max_tokens": kwargs.get("max_tokens", 1024),
+            "max_tokens": max_tokens_val,
             "temperature": kwargs.get("temperature", 0.7),
             "top_p": kwargs.get("top_p", 0.9),
             "stream": False,
+            # 思考预算：给思考留一半，给回答留一半，避免思考用完所有 token
+            "reasoning_budget_tokens": min(max_tokens_val // 2, 2048),
         }
         for k in ("frequency_penalty", "presence_penalty", "seed"):
             if k in kwargs and kwargs[k] is not None:
