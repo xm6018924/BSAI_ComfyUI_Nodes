@@ -5,17 +5,17 @@
 
 import { app } from "../../../scripts/app.js";
 
-// 公共参数：两个后端始终可见
+// Common params: always visible on both backends
 const COMMON_WIDGETS = [
-  "推理后端",
-  "启用思考",
-  "上下文长度",
+  "backend",
+  "enable_thinking",
+  "context_length",
 ];
 
 // 后端值 -> 该后端可见的 widget 名
 const BACKEND_WIDGET_GROUPS = {
-  "llama.cpp (本地加载GGUF)": COMMON_WIDGETS.concat(["模型系列", "主模型", "视觉投影mmproj", "GPU层数"]),
-  "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)": COMMON_WIDGETS.concat(["模型挡位"]),
+  "llama.cpp (local GGUF)": COMMON_WIDGETS.concat(["model_family", "model_file", "mmproj", "gpu_layers"]),
+  "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)": COMMON_WIDGETS.concat(["strata_quant"]),
 };
 
 function setWidgetHidden(widget, hidden) {
@@ -31,14 +31,14 @@ function setWidgetHidden(widget, hidden) {
 
 function syncWidgetVisibility(node) {
   if (!node || !node.widgets) return;
-  const backendWidget = node.widgets.find((w) => w.name === "推理后端");
+  const backendWidget = node.widgets.find((w) => w.name === "backend");
   if (!backendWidget) return;
 
   const backendValue = backendWidget.value;
   const visibleWidgets = BACKEND_WIDGET_GROUPS[backendValue] || COMMON_WIDGETS;
 
   for (const w of node.widgets) {
-    if (w.name === "推理后端") continue;
+    if (w.name === "backend") continue;
     setWidgetHidden(w, !visibleWidgets.includes(w.name));
   }
 }
@@ -49,7 +49,7 @@ app.registerExtension({
     if (node.comfyClass !== "BSAI_QwenModelLoader") return;
 
     // 后端切换时同步显隐
-    const backendWidget = node.widgets.find((w) => w.name === "推理后端");
+    const backendWidget = node.widgets.find((w) => w.name === "backend");
     if (backendWidget) {
       const origCallback = backendWidget.callback;
       backendWidget.callback = function (value, ...args) {

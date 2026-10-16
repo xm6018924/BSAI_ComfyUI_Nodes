@@ -132,7 +132,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
                 "loop": ("BOOLEAN", {"default": False}),
                 "resize_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
                 "resize_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
-                "output_mode": (["完整视频", "选中单帧"], {"default": "完整视频"}),
+                "output_mode": (["full_video", "selected_frame"], {"default": "full_video"}),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 100000, "step": 1}),
             },
         }
@@ -229,7 +229,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
             return None
 
     def load_video_plus(self, file, frame_rate=30.0, start_frame=0, end_frame=-1, loop=False,
-                        resize_width=0, resize_height=0, output_mode="完整视频", frame_index=0):
+                        resize_width=0, resize_height=0, output_mode="full_video", frame_index=0):
         video_path = folder_paths.get_annotated_filepath(file)
         
         cap = cv2.VideoCapture(video_path)
@@ -382,7 +382,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
         return (main_video, single_frame_video, single_image, video_path, total_frames, single_idx, frames_out, audio_out)
 
     @classmethod
-    def IS_CHANGED(cls, file, output_mode="完整视频", frame_index=0, start_frame=0, end_frame=-1, **kwargs):
+    def IS_CHANGED(cls, file, output_mode="full_video", frame_index=0, start_frame=0, end_frame=-1, **kwargs):
         video_path = folder_paths.get_annotated_filepath(file)
         mod_time = os.path.getmtime(video_path)
         return f"{mod_time}_{output_mode}_{frame_index}_{start_frame}_{end_frame}"
@@ -887,46 +887,46 @@ class BSAI_QwenModelLoader:
     def INPUT_TYPES(s):
         all_files = _bsai_list_llm_files()
         model_list = [f for f in all_files if "mmproj" not in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin", ".pth", ".pt"]]
-        mmproj_list = ["无"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
+        mmproj_list = ["None"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
 
         if not model_list:
-            model_list = ["（请把模型放到 models/LLM）"]
+            model_list = ["(place models in models/LLM)"]
 
         # Strata quant options
-        strata_quants = ["Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"]
+        strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"]
 
         return {
             "required": {
-                "推理后端": (["llama.cpp (本地加载GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)"],
-                          {"default": "llama.cpp (本地加载GGUF)",
-                           "tooltip": "Strata 后端不需要选主模型/mmproj，走 HTTP 调用本地 Strata 服务"}),
-                "模型系列": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
-                "主模型": (model_list, {"tooltip": "主模型文件（建议 .gguf）放到 ComfyUI/models/LLM/"}),
-                "视觉投影mmproj": (mmproj_list, {"default": "无", "tooltip": "多模态需要 mmproj；纯文本可选“无”。"}),
-                "启用思考": ("BOOLEAN", {"default": False}),
-                "上下文长度": ("INT", {"default": 32768, "min": 1024, "max": 327680, "step": 256}),
-                "GPU层数": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
-                "模型挡位": (strata_quants, {"default": "Auto (自动适配)", "tooltip": "仅 Strata 后端生效：选择量化级别，Auto 自动选最快的"}),
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)"],
+                          {"default": "llama.cpp (local GGUF)",
+                           "tooltip": "Strata backend does not need model/mmproj; it calls the local Strata service over HTTP"}),
+                "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
+                "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
+                "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
+                "enable_thinking": ("BOOLEAN", {"default": False}),
+                "context_length": ("INT", {"default": 32768, "min": 1024, "max": 327680, "step": 256}),
+                "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
+                "strata_quant": (strata_quants, {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level; Auto picks the fastest"}),
             }
         }
 
     RETURN_TYPES = ("BSAI_QWEN_MODEL",)
-    RETURN_NAMES = ("qwen模型",)
+    RETURN_NAMES = ("model",)
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, 推理后端, 模型系列, 主模型, 视觉投影mmproj, 启用思考, 上下文长度, GPU层数, 模型挡位="Auto (自动适配)"):
+    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)"):
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
-        if str(推理后端).startswith("BSAI Strata"):
+        if str(backend).startswith("BSAI Strata"):
             # Parse quant label
             quant_map = {
-                "Auto (自动适配)": None,
-                "Q2_0 (最快)": "Q2_0",
-                "IQ2_XS (略好)": "IQ2_XS",
-                "IQ3_XXS (更好)": "IQ3_XXS",
-                "IQ3_S (最好)": "IQ3_S",
+                "Auto (auto)": None, "Auto (自动适配)": None,
+                "Q2_0 (fastest)": "Q2_0", "Q2_0 (最快)": "Q2_0",
+                "IQ2_XS (slightly better)": "IQ2_XS", "IQ2_XS (略好)": "IQ2_XS",
+                "IQ3_XXS (better)": "IQ3_XXS", "IQ3_XXS (更好)": "IQ3_XXS",
+                "IQ3_S (best)": "IQ3_S", "IQ3_S (最好)": "IQ3_S",
             }
-            quant = quant_map.get(模型挡位, None)
+            quant = quant_map.get(strata_quant, None)
 
             # 自动检查并启动 Strata 服务
             try:
@@ -970,25 +970,25 @@ class BSAI_QwenModelLoader:
             except Exception:
                 pass
 
-            return (_BSAI_StrataHTTPBackend(n_ctx=int(上下文长度), quant_label=quant),)
+            return (_BSAI_StrataHTTPBackend(n_ctx=int(context_length), quant_label=quant),)
 
-        if 主模型 is None or 主模型.startswith("（请把模型放到"):
+        if model_file is None or str(model_file).startswith("(place models"):
             raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
 
-        if 模型系列 in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
-            if 视觉投影mmproj == "无":
+        if model_family in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
+            if str(mmproj) in ("None", "无"):
                 raise RuntimeError(
-                    f"{模型系列} 是多模态模型，需要选择视觉投影mmproj文件。\n" +
-                    "请在 '视觉投影mmproj' 选项中选择对应的 mmproj 文件。"
+                    f"{model_family} is a multimodal model and requires an mmproj file.\n" +
+                    "Please select the matching mmproj file in the 'mmproj' option."
                 )
 
         config = {
-            "family": 模型系列,
-            "model": 主模型,
-            "mmproj": 视觉投影mmproj,
-            "think": bool(启用思考),
-            "n_ctx": int(上下文长度),
-            "n_gpu_layers": int(GPU层数),
+            "family": model_family,
+            "model": model_file,
+            "mmproj": mmproj,
+            "think": bool(enable_thinking),
+            "n_ctx": int(context_length),
+            "n_gpu_layers": int(gpu_layers),
         }
         model = _BSAI_QwenStorage.load(config)
         return (model,)
@@ -1000,44 +1000,44 @@ class BSAI_QwenPromptInference:
         return {
             "required": {
                 "qwen模型": ("BSAI_QWEN_MODEL",),
-                "输入文本": ("STRING", {"default": "", "multiline": True, "tooltip": "输入文本内容，用于提示词反推"}),
-                "系统提示词": ("STRING", {"default": "请分析输入内容并生成详细描述。", "multiline": True}),
-                "最大生成token": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
-                "温度": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "text": ("STRING", {"default": "", "multiline": True, "tooltip": "Input text content for prompt reverse-engineering"}),
+                "system_prompt": ("STRING", {"default": "Analyze the input and generate a detailed description.", "multiline": True}),
+                "max_tokens": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "top_k": ("INT", {"default": 20, "min": 0, "max": 200, "step": 1}),
-                "重复惩罚": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),
-                "频率惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
-                "存在惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "repeat_penalty": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),
+                "frequency_penalty": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "presence_penalty": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
-                "推理后自动卸载": ("BOOLEAN", {"default": True, "tooltip": "推理完成后立即释放 LLM 显存(约16GB)，避免占用导致后续其他模型 OOM。多节点串联用同一模型的场景请关闭。"}),
+                "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("输出文本",)
+    RETURN_NAMES = ("text",)
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed, 推理后自动卸载):
-        llm = qwen模型
+    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload):
+        llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
             raise TypeError(f"无效的模型输入：期望 Llama 模型对象，但收到 {type(llm).__name__} 类型。请检查工作流连接，确保 'qwen模型' 输入连接到正确的模型加载器输出。")
 
         messages = []
-        system_text = (系统提示词 or "").strip()
+        system_text = (system_prompt or "").strip()
         if system_text:
             messages.append({"role": "system", "content": system_text})
 
-        prompt_text = (输入文本 or "").strip()
+        prompt_text = (text or "").strip()
         if not prompt_text:
             raise ValueError("输入文本不能为空。")
 
         messages.append({"role": "user", "content": prompt_text})
 
         try:
-            max_tokens_val = int(最大生成token)
+            max_tokens_val = int(max_tokens)
         except (TypeError, ValueError):
             raise TypeError(f"最大生成token 必须是整数类型，但收到 {type(最大生成token).__name__} 类型。请检查工作流连接。")
         
@@ -1048,12 +1048,12 @@ class BSAI_QwenPromptInference:
 
         params = {
             "max_tokens": max_tokens_val,
-            "temperature": float(温度),
+            "temperature": float(temperature),
             "top_p": float(top_p),
             "top_k": top_k_val,
-            "repeat_penalty": float(重复惩罚),
-            "frequency_penalty": float(频率惩罚),
-            "presence_penalty": float(存在惩罚),
+            "repeat_penalty": float(repeat_penalty),
+            "frequency_penalty": float(frequency_penalty),
+            "presence_penalty": float(presence_penalty),
             "seed": _bsai_normalize_seed(seed),
             "stream": False,
             "stop": ["</s>"],
@@ -1084,7 +1084,7 @@ class BSAI_QwenPromptInference:
         if text is None:
             text = ""
 
-        if 推理后自动卸载:
+        if auto_unload:
             _BSAI_QwenStorage.unload()
 
         return (text.lstrip().removeprefix(": ").strip(),)
@@ -1171,8 +1171,8 @@ class BSAI_QwenMultimodalInference:
         return {
             "required": {
                 "qwen模型": ("BSAI_QWEN_MODEL",),
-                "输入文本": ("STRING", {"default": "", "multiline": True, "tooltip": "输入文本内容，用于提示词反推"}),
-                "系统提示词": ("STRING", {"default": "请分析输入内容并生成详细描述。", "multiline": True}),
+                "text": ("STRING", {"default": "", "multiline": True, "tooltip": "Input text content for prompt reverse-engineering"}),
+                "system_prompt": ("STRING", {"default": "Analyze the input and generate a detailed description.", "multiline": True}),
                 "最大生成token": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
                 "温度": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -1181,8 +1181,8 @@ class BSAI_QwenMultimodalInference:
                 "频率惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "存在惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
-                "推理后自动卸载": ("BOOLEAN", {"default": True, "tooltip": "推理完成后立即释放 LLM 显存(约16GB)，避免占用导致后续其他模型 OOM。多节点串联用同一模型的场景请关闭。"}),
-                "视频最大采样帧数": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
+                "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
+                "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
@@ -1201,7 +1201,7 @@ class BSAI_QwenMultimodalInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen模型, 输入文本, 系统提示词, 最大生成token, 温度, top_p, top_k, 重复惩罚, 频率惩罚, 存在惩罚, seed, 推理后自动卸载, 视频最大采样帧数, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
+    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
         llm = qwen模型
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -1224,7 +1224,7 @@ class BSAI_QwenMultimodalInference:
         for idx, video_input in enumerate([video_1, video_2, video_3], 1):
             video_path = _bsai_get_video_path(video_input)
             if video_path:
-                frames = _bsai_extract_video_frames(video_path, max_frames=int(视频最大采样帧数))
+                frames = _bsai_extract_video_frames(video_path, max_frames=int(video_max_frames))
                 for fidx, frame in enumerate(frames):
                     temp_path = temp_dir / f"vid_{int(time.time()*1000)}_{idx}_f{fidx}.jpg"
                     img = Image.fromarray(frame)
@@ -1232,7 +1232,7 @@ class BSAI_QwenMultimodalInference:
                     content_items.append({"type": "image_url", "image_url": {"url": Path(str(temp_path)).as_uri()}})
 
         # 文本提示
-        prompt_text = (输入文本 or "").strip()
+        prompt_text = (text or "").strip()
         if not prompt_text and not content_items:
             raise ValueError("输入文本和所有图像/视频不能同时为空。")
         if prompt_text:
@@ -1342,16 +1342,16 @@ class BSAI_QwenMultimodalInference:
 class BSAI_QwenUnloadModel:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"任意输入": ("*",)}}
+        return {"required": {"any_input": ("*",)}}
 
     RETURN_TYPES = ("*",)
-    RETURN_NAMES = ("任意输出",)
+    RETURN_NAMES = ("any_output",)
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, 任意输入):
+    def run(self, any_input):
         _BSAI_QwenStorage.unload()
-        return (任意输入,)
+        return (any_input,)
 
 
 # ---- BSAI VLP: exact video info endpoint (replaces unreliable RVFC fps guess) ----
@@ -1419,18 +1419,18 @@ class BSAI_StepScheduleConfig(ComfyNodeABC):
                 "recipe": (list(_RECIPE_LIST), {
                     "default": _RECIPE_8STEP_V2,
                     "tooltip": (
-                        "一键预设步数配方。改这里同时驱动 VedaSparse + Timesteps + EulerSampler。\n\n"
-                        "⚠️ 必须与底模/LoRA匹配：\n"
-                        "• 8-step V2 → 底模 fastvideo_fasth3_8step_v2_pruned_int8（当前默认）\n"
-                        "• 4-step Preview → 启用 4-step LoRA（DMAD/FlashGen/PDMD），强度=1.0\n"
-                        "• 3-step TaoMate → 需加载 3-step TaoMate LoRA（当前未预接）\n"
-                        "步数不匹配会出糊图/噪点。"
+                        "One-click step-schedule preset. Changing it drives VedaSparse + Timesteps + EulerSampler together.\n\n"
+                        "Must match the base model/LoRA:\n"
+                        "• 8-step V2 -> base model fastvideo_fasth3_8step_v2_pruned_int8 (current default)\n"
+                        "• 4-step Preview -> enable 4-step LoRA (DMAD/FlashGen/PDMD), strength=1.0\n"
+                        "• 3-step TaoMate -> requires the 3-step TaoMate LoRA (not pre-wired)\n"
+                        "Mismatched step counts produce blurry/noisy output."
                     ),
                 }),
                 "custom_ladder": ("STRING", {
                     "default": "",
                     "multiline": False,
-                    "tooltip": "recipe=custom 时使用，例如 999,749,500,250",
+                    "tooltip": "Used when recipe=custom, e.g. 999,749,500,250",
                 }),
             },
         }
@@ -1443,7 +1443,7 @@ class BSAI_StepScheduleConfig(ComfyNodeABC):
     FUNCTION = "run"
     CATEGORY = "BSAI"
     OUTPUT_NODE = False
-    DESCRIPTION = "单一步数配方配置节点：一个下拉框同时驱动 VedaSparse / Timesteps / EulerSampler 的 recipe 参数。"
+    DESCRIPTION = "Single step-schedule config node: one dropdown drives the recipe parameter of VedaSparse / Timesteps / EulerSampler."
 
     def run(self, recipe, custom_ladder=""):
         ladder = _RECIPE_LADDER.get(recipe, custom_ladder or "999,749,500,250")
@@ -1474,5 +1474,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BSAI_QwenPromptInference": "BSAI Qwen Prompt Inference",
     "BSAI_QwenMultimodalInference": "BSAI Qwen Multimodal Inference",
     "BSAI_QwenUnloadModel": "BSAI Qwen Unload Model",
-    "BSAI_StepScheduleConfig": "BSAI Step Schedule Config (步数配方)",
+    "BSAI_StepScheduleConfig": "BSAI Step Schedule Config",
 }

@@ -25,20 +25,20 @@ class BSAI_AudioDurationToFrames:
                     "min": 0.1,
                     "max": 3600.0,
                     "step": 0.1,
-                    "tooltip": "音频时长（秒）"
+                    "tooltip": "Audio duration (seconds)"
                 }),
                 "fps": ("FLOAT", {
                     "default": 24.0,
                     "min": 1.0,
                     "max": 120.0,
                     "step": 1.0,
-                    "tooltip": "视频帧率（每秒帧数）"
+                    "tooltip": "Video frame rate (frames per second)"
                 }),
             },
             "optional": {
                 "round_frames": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "是否对帧数进行四舍五入"
+                    "tooltip": "Whether to round the frame count"
                 }),
             }
         }
@@ -91,14 +91,14 @@ class BSAI_AudioFramesToDuration:
                     "min": 1,
                     "max": 99999,
                     "step": 1,
-                    "tooltip": "视频帧数"
+                    "tooltip": "Video frame count"
                 }),
                 "fps": ("FLOAT", {
                     "default": 24.0,
                     "min": 1.0,
                     "max": 120.0,
                     "step": 1.0,
-                    "tooltip": "视频帧率（每秒帧数）"
+                    "tooltip": "Video frame rate (frames per second)"
                 }),
             }
         }

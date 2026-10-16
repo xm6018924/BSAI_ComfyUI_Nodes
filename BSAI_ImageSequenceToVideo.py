@@ -24,8 +24,8 @@ class BSAI_ImageSequenceToVideo:
                     "step": 1,
                     "display": "number",
                 }),
-                "video_name": ("STRING", {"default": "merged_video"}),
-                "output_path": ("STRING", {"default": "C:/Users/Desktop/output"}),
+                "video_name": ("STRING", {"default": "merged_video", "tooltip": "Output video filename (no path separators; written to the ComfyUI output dir)"}),
+                "output_path": ("STRING", {"default": "", "tooltip": "Optional subfolder under the ComfyUI output directory (must stay inside it)"}),
                 "device": (["CPU", "GPU"], {"default": "CPU",}),
                 "video_format": (["mp4", "avi", "mov", "mkv"], {"default": "mp4",}),
             },
@@ -43,12 +43,22 @@ class BSAI_ImageSequenceToVideo:
 
     def image_sequence_to_video(self, images1, images2, fps, video_name, output_path, device, video_format, audio1=None, audio2=None):
         try:
-            # 清理路径中的引号和其他非法字符
-            output_path = output_path.strip().strip('"').strip("'")
-            # 确保输出目录存在
-            output_path = os.path.abspath(output_path)
-            if not output_path or not os.path.exists(output_path):
-                output_path = os.path.join(os.path.expanduser("~"), "Desktop", "output")
+            # Path containment: output must live inside the ComfyUI output directory.
+            base_out = folder_paths.get_output_directory()
+            base_out_real = os.path.realpath(base_out)
+            video_name = os.path.basename(str(video_name or "").strip())
+            if not video_name:
+                video_name = "merged_video"
+            output_path = str(output_path or "").strip().strip('"').strip("'")
+            if output_path:
+                cand = os.path.realpath(os.path.join(base_out, output_path))
+                if os.path.commonpath([base_out_real, cand]) != base_out_real:
+                    print(f"[BSAI_ImageSequenceToVideo] output_path {output_path!r} escapes the output dir; falling back to output root")
+                    output_path = base_out
+                else:
+                    output_path = cand
+            else:
+                output_path = base_out
             if not os.path.exists(output_path):
                 os.makedirs(output_path)
 

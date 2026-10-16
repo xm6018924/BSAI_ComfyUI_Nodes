@@ -52,28 +52,28 @@ class BSAI_NineGridMosaic:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "图像1": ("IMAGE",),
+                "image_1": ("IMAGE",),
             },
             "optional": {
-                "图像2": ("IMAGE",),
-                "图像3": ("IMAGE",),
-                "图像4": ("IMAGE",),
-                "图像5": ("IMAGE",),
-                "图像6": ("IMAGE",),
-                "图像7": ("IMAGE",),
-                "图像8": ("IMAGE",),
-                "图像9": ("IMAGE",),
-                "行数": ("INT", {"default": 1, "min": 1, "max": 16, "step": 1,
-                                   "tooltip": "网格行数（1~16）"}),
-                "列数": ("INT", {"default": 4, "min": 1, "max": 16, "step": 1,
-                                   "tooltip": "网格列数（1~16）"}),
-                "接缝颜色": ("COLOR", {"default": "#ffffff", "tooltip": "格子之间的缝隙颜色"}),
-                "接缝宽度": ("INT", {"default": 0, "min": 0, "max": 128, "step": 1,
-                                       "tooltip": "格子之间的缝隙宽度（像素），0 表示无缝"}),
-                "随机排序": ("BOOLEAN", {"default": False, "tooltip": "是否随机打乱图像顺序再拼图"}),
-                "随机种子": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1, "step": 1,
-                                       "tooltip": "随机排序的种子"}),
-                "背景颜色": ("COLOR", {"default": "#ffffff", "tooltip": "空白格与四周背景颜色"}),
+                "image_2": ("IMAGE",),
+                "image_3": ("IMAGE",),
+                "image_4": ("IMAGE",),
+                "image_5": ("IMAGE",),
+                "image_6": ("IMAGE",),
+                "image_7": ("IMAGE",),
+                "image_8": ("IMAGE",),
+                "image_9": ("IMAGE",),
+                "rows": ("INT", {"default": 1, "min": 1, "max": 16, "step": 1,
+                                   "tooltip": "Grid row count (1-16)"}),
+                "cols": ("INT", {"default": 4, "min": 1, "max": 16, "step": 1,
+                                   "tooltip": "Grid column count (1-16)"}),
+                "gap_color": ("COLOR", {"default": "#ffffff", "tooltip": "Color of the gaps between cells"}),
+                "gap_width": ("INT", {"default": 0, "min": 0, "max": 128, "step": 1,
+                                       "tooltip": "Gap width between cells (pixels); 0 = seamless"}),
+                "shuffle": ("BOOLEAN", {"default": False, "tooltip": "Whether to shuffle the image order before merging"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**32 - 1, "step": 1,
+                                       "tooltip": "Seed for the shuffle"}),
+                "bg_color": ("COLOR", {"default": "#ffffff", "tooltip": "Background color for empty cells and the border"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -81,11 +81,11 @@ class BSAI_NineGridMosaic:
         }
 
     RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("九宫格结果",)
+    RETURN_NAMES = ("grid_result",)
     OUTPUT_NODE = False
     FUNCTION = "merge"
     CATEGORY = "BSAI/Image"
-    DESCRIPTION = "BSAI 九宫格马赛克拼图：1~9 张图按行列拼网格，支持接缝颜色/宽度、随机排序、背景色"
+    DESCRIPTION = "BSAI nine-grid mosaic: merge 1-9 images into a grid, with gap color/width, shuffle and background color support"
 
     # ------------------------------------------------------------------ utils
     @staticmethod
@@ -150,27 +150,27 @@ class BSAI_NineGridMosaic:
         return value if value is not None else default
 
     # ------------------------------------------------------------------ main
-    def merge(self, 图像1, 图像2=None, 图像3=None, 图像4=None, 图像5=None,
-              图像6=None, 图像7=None, 图像8=None, 图像9=None,
-              行数=1, 列数=4, 接缝颜色="#ffffff", 接缝宽度=0,
-              随机排序=False, 随机种子=0, 背景颜色="#ffffff",
+    def merge(self, image_1, image_2=None, image_3=None, image_4=None, image_5=None,
+              image_6=None, image_7=None, image_8=None, image_9=None,
+              rows=1, cols=4, gap_color="#ffffff", gap_width=0,
+              shuffle=False, seed=0, bg_color="#ffffff",
               unique_id=None):
         # 解包 widget 值（兼容 list 包裹）
-        行数 = int(self._unwrap(行数, 1))
-        列数 = int(self._unwrap(列数, 4))
-        接缝宽度 = int(self._unwrap(接缝宽度, 0))
-        随机排序 = bool(self._unwrap(随机排序, False))
-        随机种子 = int(self._unwrap(随机种子, 0))
-        gap_rgb = _hex_to_rgb(接缝颜色)
-        bg_rgb = _hex_to_rgb(背景颜色)
+        rows = int(self._unwrap(rows, 1))
+        cols = int(self._unwrap(cols, 4))
+        gap_width = int(self._unwrap(gap_width, 0))
+        shuffle = bool(self._unwrap(shuffle, False))
+        seed = int(self._unwrap(seed, 0))
+        gap_rgb = _hex_to_rgb(gap_color)
+        bg_rgb = _hex_to_rgb(bg_color)
 
-        行数 = max(1, min(16, 行数))
-        列数 = max(1, min(16, 列数))
-        接缝宽度 = max(0, min(128, 接缝宽度))
+        rows = max(1, min(16, rows))
+        cols = max(1, min(16, cols))
+        gap_width = max(0, min(128, gap_width))
 
         # 收集图像
         all_images = []
-        for img in (图像1, 图像2, 图像3, 图像4, 图像5, 图像6, 图像7, 图像8, 图像9):
+        for img in (image_1, image_2, image_3, image_4, image_5, image_6, image_7, image_8, image_9):
             if img is None:
                 continue
             all_images.extend(self._flatten_images(img))
@@ -178,12 +178,12 @@ class BSAI_NineGridMosaic:
             raise ValueError("[BSAI_NineGridMosaic] 至少需要一张图像输入")
 
         # 随机排序
-        if 随机排序:
-            rng = random.Random(随机种子)
+        if shuffle:
+            rng = random.Random(seed)
             rng.shuffle(all_images)
 
         # 只保留 行×列 以内的图像，多余丢弃
-        capacity = 行数 * 列数
+        capacity = rows * cols
         images = all_images[:capacity]
 
         # cell 尺寸 = 所有输入图的最大宽高（保证格子统一）
@@ -191,36 +191,36 @@ class BSAI_NineGridMosaic:
         cell_h = max(im.height for im in images)
 
         # 输出画布尺寸：内部缝隙用接缝颜色，四周留 gap_width 的边框用背景色
-        out_w = cell_w * 列数 + 接缝宽度 * (列数 - 1) + 接缝宽度 * 2
-        out_h = cell_h * 行数 + 接缝宽度 * (行数 - 1) + 接缝宽度 * 2
+        out_w = cell_w * cols + gap_width * (cols - 1) + gap_width * 2
+        out_h = cell_h * rows + gap_width * (rows - 1) + gap_width * 2
         canvas = Image.new("RGB", (out_w, out_h), bg_rgb)
 
         # 填入每一格
         for idx in range(capacity):
-            row, col = divmod(idx, 列数)
-            x = 接缝宽度 + col * (cell_w + 接缝宽度)
-            y = 接缝宽度 + row * (cell_h + 接缝宽度)
+            row, col = divmod(idx, cols)
+            x = gap_width + col * (cell_w + gap_width)
+            y = gap_width + row * (cell_h + gap_width)
             if idx < len(images):
                 cell = self._fit_contain(images[idx], cell_w, cell_h, bg_rgb)
                 canvas.paste(cell, (x, y))
             # 空格保持背景色
 
         # 内部缝隙上色：在每行/每列间隙画接缝色条（若 gap>0）
-        if 接缝宽度 > 0:
+        if gap_width > 0:
             draw = _ImageDraw()
-            for r in range(行数 - 1):
-                y0 = 接缝宽度 + (r + 1) * cell_h + r * 接缝宽度
-                draw.rectangle(canvas, (0, y0, out_w, y0 + 接缝宽度), gap_rgb)
-            for c in range(列数 - 1):
-                x0 = 接缝宽度 + (c + 1) * cell_w + c * 接缝宽度
-                draw.rectangle(canvas, (x0, 0, x0 + 接缝宽度, out_h), gap_rgb)
+            for r in range(rows - 1):
+                y0 = gap_width + (r + 1) * cell_h + r * gap_width
+                draw.rectangle(canvas, (0, y0, out_w, y0 + gap_width), gap_rgb)
+            for c in range(cols - 1):
+                x0 = gap_width + (c + 1) * cell_w + c * gap_width
+                draw.rectangle(canvas, (x0, 0, x0 + gap_width, out_h), gap_rgb)
 
         # 转 torch 张量输出
         merged_np = np.asarray(canvas, dtype=np.float32) / 255.0
         merged_tensor = torch.from_numpy(merged_np).unsqueeze(0).contiguous()
-        print(f"[BSAI_NineGridMosaic] grid={行数}x{列数}, "
+        print(f"[BSAI_NineGridMosaic] grid={rows}x{cols}, "
               f"images={len(images)}, output={merged_tensor.shape}, "
-              f"gap={接缝宽度}px")
+              f"gap={gap_width}px")
         return (merged_tensor,)
 
 
@@ -238,5 +238,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BSAI_NineGridMosaic": "BSAI 九宫格拼图",
+    "BSAI_NineGridMosaic": "BSAI Nine-Grid Mosaic",
 }

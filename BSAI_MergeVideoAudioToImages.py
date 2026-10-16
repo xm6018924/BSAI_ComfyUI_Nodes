@@ -15,23 +15,14 @@ from typing import List
 from folder_paths import get_output_directory, get_temp_directory
 
 def get_ffmpeg_path():
-    """查找FFmpeg路径"""
-    # 优先检查系统PATH中的ffmpeg
-    for path in os.environ.get('PATH', '').split(os.pathsep):
-        ffmpeg_path = os.path.join(path, 'ffmpeg.exe') if os.name == 'nt' else os.path.join(path, 'ffmpeg')
-        if os.path.exists(ffmpeg_path):
-            return ffmpeg_path
-    # 检查常见的安装位置
-    common_paths = [
-        'C:\\ffmpeg\\bin\\ffmpeg.exe',
-        'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
-        '/usr/bin/ffmpeg',
-        '/usr/local/bin/ffmpeg',
-    ]
-    for ffmpeg_path in common_paths:
-        if os.path.exists(ffmpeg_path):
-            return ffmpeg_path
-    return None
+    """Return the bundled imageio-ffmpeg binary (no user-supplied executable).
+
+    Security: the previous STRING widget allowed running an arbitrary executable
+    path supplied by the user/workflow. We now always use the fixed imageio-ffmpeg
+    binary that ships with the ComfyUI Python environment.
+    """
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
 
 # 尝试导入必要依赖，缺失时给出明确提示
 try:
@@ -42,12 +33,37 @@ except ImportError:
 try:
     import soundfile as sf
 except ImportError:
-    raise ImportError("缺少 soundfile 库，请执行：pip install soundfile")
+    raise ImportError("soundfile library is missing, please run: pip install soundfile")
 
 try:
     from PIL import Image
 except ImportError:
-    raise ImportError("缺少 Pillow 库，请执行：pip install pillow")
+    raise ImportError("Pillow library is missing, please run: pip install pillow")
+
+
+
+def _confine_comfy_path(path):
+    """Return the realpath of path if it lies inside a ComfyUI base dir, else None."""
+    import folder_paths as _fp
+    bases = []
+    for base in (_fp.get_input_directory(), _fp.get_temp_directory(), _fp.get_output_directory()):
+        try:
+            bases.append(os.path.realpath(base))
+        except Exception:
+            pass
+    try:
+        real = os.path.realpath(str(path or "").strip())
+    except Exception:
+        return None
+    if not real:
+        return None
+    for base in bases:
+        try:
+            if os.path.commonpath([base, real]) == base:
+                return real
+        except Exception:
+            continue
+    return None
 
 class BSAI_MergeVideoWithAudioToImages:
     """
@@ -65,43 +81,38 @@ class BSAI_MergeVideoWithAudioToImages:
             "required": {
                 "video_to_path": ("STRING", {
                     "forceInput": True,
-                    "description": "输入视频文件的路径"
+                    "description": "Input video file path (must be inside ComfyUI input/temp/output)"
                 }),
                 "audio": ("AUDIO", {
                     "forceInput": True,
-                    "description": "原生音频数据（ComfyUI AUDIO 类型）"
+                    "description": "Raw audio data (ComfyUI AUDIO type)"
                 }),
                 "fps": ("FLOAT", {
                     "default": 25.0,
                     "min": 1.0,
                     "max": 120.0,
                     "step": 0.1,
-                    "description": "输出图像序列的帧率"
+                    "description": "Frame rate of the output image sequence"
                 }),
             },
-            "optional": {
-                "ffmpeg_path": ("STRING", {
-                    "default": "",
-                    "description": "FFmpeg可执行文件路径（留空则使用ComfyUI自带的FFmpeg）"
-                })
-            }
         }
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("images",)
     FUNCTION = "merge_video_audio_to_images"
     CATEGORY = "BSAI/Video Processing"
-    DESCRIPTION = "BSAI - 合并视频和音频，按自定义帧率拆解为图像序列"
+    DESCRIPTION = "BSAI - Merge video and audio, extract to image sequence at custom fps"
 
-    def merge_video_audio_to_images(self, video_to_path: str, audio, fps: float, ffmpeg_path: str = "") -> tuple[List]:
-        # 1. 确定FFmpeg路径
-        if not ffmpeg_path:
-            ffmpeg_path = get_ffmpeg_path()
-        if not ffmpeg_path:
-            raise RuntimeError("未找到FFmpeg，请在节点中指定FFmpeg路径或确保ComfyUI已正确安装FFmpeg")
-        if not os.path.exists(ffmpeg_path):
-            raise FileNotFoundError(f"指定的FFmpeg路径不存在：{ffmpeg_path}")
-        print(f"[BSAI] 使用FFmpeg：{ffmpeg_path}")
+    def merge_video_audio_to_images(self, video_to_path: str, audio, fps: float) -> tuple[List]:
+        # 1. Resolve FFmpeg: always the bundled imageio-ffmpeg binary.
+        ffmpeg_path = get_ffmpeg_path()
+        if not ffmpeg_path or not os.path.exists(ffmpeg_path):
+            raise RuntimeError("imageio-ffmpeg binary not found in the ComfyUI environment")
+        # Path containment: video_to_path must live inside ComfyUI input/temp/output.
+        video_to_path = _confine_comfy_path(video_to_path)
+        if not video_to_path:
+            raise ValueError("video_to_path must be inside ComfyUI input/temp/output directories")
+        print(f"[BSAI] Using FFmpeg: {ffmpeg_path}")
 
         # 2. 创建临时目录（避免文件冲突）
         temp_dir = tempfile.mkdtemp(dir=get_temp_directory(), prefix="bsai_video_audio_")

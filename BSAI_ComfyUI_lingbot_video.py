@@ -327,7 +327,7 @@ class BSAI_LingBot_Video_Loader:
                 "vae_dtype": (["fp32", "bf16", "fp16"], {"default": "fp32"}),
             },
             "optional": {
-                "model_path": ("STRING", {"default": "", "tooltip": "自定义模型本地路径，留空使用默认路径 models/lingbot-vision/dense-1.3b/"}),
+                "model_path": ("STRING", {"default": "", "tooltip": "Custom local model path; leave empty to use the default models/lingbot-vision/dense-1.3b/"}),
             }
         }
 

@@ -130,17 +130,17 @@ def _krea_style_ref_to_conditioning(clip, krea_style_ref_list):
 # ============================================================================
 
 STYLE_INSTRUCTIONS = {
-    "轻微": (
+    "subtle": (
         "Use the attached reference image as a subtle style guide. Borrow only the broad "
         "color palette, surface texture, lighting mood, and visual rhythm. "
         "Do not copy the depicted subject."
     ),
-    "平衡": (
+    "balanced": (
         "Use the attached reference image as a style guide. Transfer its visual language, "
         "color palette, material texture, brushwork, lighting, composition rhythm, and "
         "overall mood. Do not copy the depicted subject unless the target prompt asks for it."
     ),
-    "强烈": (
+    "strong": (
         "Use the attached reference image as a strong style guide. Strongly adopt its "
         "visual language, color palette, material texture, brushwork, lighting, composition "
         "rhythm, and overall mood, while keeping the target prompt as the subject and scene."
@@ -166,11 +166,11 @@ class BSAI_Krea2StyleReference:
                     "min": 0.0,
                     "max": 2.0,
                     "step": 0.05,
-                    "tooltip": "风格参考强度。0.0 = 无影响，1.0 = 标准强度，2.0 = 极强影响。",
+                    "tooltip": "Style reference strength. 0.0 = no influence, 1.0 = standard, 2.0 = very strong.",
                 }),
-                "style_level": (["轻微", "平衡", "强烈"], {
-                    "default": "平衡",
-                    "tooltip": "语义风格强度级别，控制参考图对提示词的影响程度。",
+                "style_level": (["subtle", "balanced", "strong"], {
+                    "default": "balanced",
+                    "tooltip": "Semantic style strength level, controlling how strongly the reference image influences the prompt.",
                 }),
             },
             "optional": {
@@ -179,7 +179,7 @@ class BSAI_Krea2StyleReference:
                     "min": 128,
                     "max": 1024,
                     "step": 32,
-                    "tooltip": "参考图送入 vision encoder 前的缩放分辨率。",
+                    "tooltip": "Resolution to scale the reference image to before the vision encoder.",
                 }),
                 "style_reference_in": ("CONDITIONING",),
             },
@@ -192,7 +192,7 @@ class BSAI_Krea2StyleReference:
 
     def encode(self, clip, image, strength, style_level, vision_resolution=384, style_reference_in=None):
         image_for_clip = _resize_image_for_vision(image, vision_resolution)
-        instruction = STYLE_INSTRUCTIONS.get(style_level, STYLE_INSTRUCTIONS["平衡"])
+        instruction = STYLE_INSTRUCTIONS.get(style_level, STYLE_INSTRUCTIONS["balanced"])
         text = f"{instruction}\n\n[Style Reference Image]"
 
         tokens = clip.tokenize(text, images=[image_for_clip])
@@ -229,51 +229,51 @@ class BSAI_Krea2Image:
                 "model": ("MODEL",),
                 "clip": ("CLIP",),
                 "vae": ("VAE",),
-                "正向提示词": ("STRING", {
+                "positive_prompt": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "dynamic_prompts": True,
-                    "tooltip": "正面提示词，描述你想要生成的图像内容。",
+                    "tooltip": "Positive prompt describing the image content you want to generate.",
                 }),
-                "负面提示词": ("STRING", {
+                "negative_prompt": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "dynamic_prompts": True,
-                    "tooltip": "负面提示词，描述你不想在图像中出现的内容。",
+                    "tooltip": "Negative prompt describing what you do not want in the image.",
                 }),
-                "宽度": ("INT", {"default": 768, "min": 256, "max": 2048, "step": 32}),
-                "高度": ("INT", {"default": 1344, "min": 256, "max": 2048, "step": 32}),
-                "步数": ("INT", {"default": 20, "min": 1, "max": 200, "step": 1}),
+                "width": ("INT", {"default": 768, "min": 256, "max": 2048, "step": 32}),
+                "height": ("INT", {"default": 1344, "min": 256, "max": 2048, "step": 32}),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 200, "step": 1}),
                 "cfg": ("FLOAT", {"default": 4.0, "min": 1.0, "max": 30.0, "step": 0.1}),
-                "采样器": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler"}),
-                "调度器": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple"}),
-                "种子": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "sampler": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler"}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             },
             "optional": {
-                "风格图1": ("IMAGE", {"tooltip": "第一张风格参考图（如科幻城市风格）。"}),
-                "风格强度1": ("FLOAT", {
+                "style_image_1": ("IMAGE", {"tooltip": "First style reference image (e.g. a sci-fi city style)."}),
+                "style_strength_1": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
-                    "tooltip": "第一张风格参考图的强度。",
+                    "tooltip": "Strength of the first style reference image.",
                 }),
-                "风格级别1": (["轻微", "平衡", "强烈"], {"default": "平衡"}),
-                "风格图2": ("IMAGE", {"tooltip": "第二张风格参考图（如角色风格）。"}),
-                "风格强度2": ("FLOAT", {
+                "style_level_1": (["subtle", "balanced", "strong"], {"default": "balanced"}),
+                "style_image_2": ("IMAGE", {"tooltip": "Second style reference image (e.g. a character style)."}),
+                "style_strength_2": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
-                    "tooltip": "第二张风格参考图的强度。",
+                    "tooltip": "Strength of the second style reference image.",
                 }),
-                "风格级别2": (["轻微", "平衡", "强烈"], {"default": "平衡"}),
+                "style_level_2": (["subtle", "balanced", "strong"], {"default": "balanced"}),
                 "style_reference": ("CONDITIONING", {
-                    "tooltip": "来自 BSAI Krea 2 Style Reference 节点的 CONDITIONING 风格条件。",
+                    "tooltip": "CONDITIONING style condition from the BSAI Krea 2 Style Reference node.",
                 }),
                 "krea_style_reference": ("KREA_STYLE_REF", {
-                    "tooltip": "来自官方 Krea 2 Style Reference 节点的 KREA_STYLE_REF 输出（自动下载 URL 图片并本地编码）。",
+                    "tooltip": "KREA_STYLE_REF output from the official Krea 2 Style Reference node (URL images are downloaded and encoded locally).",
                 }),
             },
         }
 
     RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("图像",)
+    RETURN_NAMES = ("image",)
     FUNCTION = "generate"
     CATEGORY = "BSAI/Krea2"
     OUTPUT_NODE = True
@@ -281,13 +281,13 @@ class BSAI_Krea2Image:
     def generate(
         self,
         model, clip, vae,
-        正向提示词, 负面提示词,
-        宽度, 高度,
-        步数, cfg,
-        采样器, 调度器,
-        种子, denoise,
-        风格图1=None, 风格强度1=1.0, 风格级别1="平衡",
-        风格图2=None, 风格强度2=1.0, 风格级别2="平衡",
+        positive_prompt, negative_prompt,
+        width, height,
+        steps, cfg,
+        sampler, scheduler,
+        seed, denoise,
+        style_image_1=None, style_strength_1=1.0, style_level_1="balanced",
+        style_image_2=None, style_strength_2=1.0, style_level_2="balanced",
         style_reference=None,
         krea_style_reference=None,
     ):
@@ -308,13 +308,15 @@ class BSAI_Krea2Image:
                 logger.warning("[BSAI Krea2] krea_style_reference 格式未知，已忽略。")
 
         # 3) 处理内嵌风格图
+        _LEVEL_MAP = {"轻微": "subtle", "平衡": "balanced", "强烈": "strong"}
         for ref_img, ref_strength, ref_level in [
-            (风格图1, 风格强度1, 风格级别1),
-            (风格图2, 风格强度2, 风格级别2),
+            (style_image_1, style_strength_1, style_level_1),
+            (style_image_2, style_strength_2, style_level_2),
         ]:
             if ref_img is not None:
                 resized = _resize_image_for_vision(ref_img, 384)
-                instruction = STYLE_INSTRUCTIONS.get(ref_level, STYLE_INSTRUCTIONS["平衡"])
+                ref_level = _LEVEL_MAP.get(ref_level, ref_level)
+                instruction = STYLE_INSTRUCTIONS.get(ref_level, STYLE_INSTRUCTIONS["balanced"])
                 text = f"{instruction}\n\n[Style Reference Image]"
                 tokens = clip.tokenize(text, images=[resized])
                 cond = clip.encode_from_tokens_scheduled(tokens)
@@ -326,10 +328,10 @@ class BSAI_Krea2Image:
                 style_conds.extend(cond)
 
         # --- 编码正面/负面提示词 ---
-        positive_tokens = clip.tokenize(正向提示词)
+        positive_tokens = clip.tokenize(positive_prompt)
         positive_cond = clip.encode_from_tokens_scheduled(positive_tokens)
 
-        negative_tokens = clip.tokenize(负面提示词)
+        negative_tokens = clip.tokenize(negative_prompt)
         negative_cond = clip.encode_from_tokens_scheduled(negative_tokens)
 
         # --- 合并风格条件到正面 conditioning ---
@@ -347,7 +349,7 @@ class BSAI_Krea2Image:
             latent_channels = model.latent_channels
 
         latent = torch.zeros(
-            [1, latent_channels, 高度 // 8, 宽度 // 8],
+            [1, latent_channels, height // 8, width // 8],
             device=comfy.model_management.intermediate_device(),
         )
 
@@ -357,14 +359,14 @@ class BSAI_Krea2Image:
         # --- 采样 ---
         sampler = comfy.samplers.KSampler(
             model=model,
-            steps=步数,
+            steps=steps,
             device=comfy.model_management.get_torch_device(),
-            sampler=采样器,
-            scheduler=调度器,
+            sampler=sampler,
+            scheduler=scheduler,
             denoise=denoise,
         )
-        sigmas = sampler.calculate_sigmas(步数)
-        noise = comfy.sample.prepare_noise(latent, 种子)
+        sigmas = sampler.calculate_sigmas(steps)
+        noise = comfy.sample.prepare_noise(latent, seed)
 
         samples = sampler.sample(
             noise=noise,
@@ -373,7 +375,7 @@ class BSAI_Krea2Image:
             positive=positive_cond,
             negative=negative_cond,
             latent_image=latent,
-            seed=种子,
+            seed=seed,
         )
 
         # --- VAE 解码 ---

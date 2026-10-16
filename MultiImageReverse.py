@@ -24,12 +24,47 @@ if TYPE_CHECKING:
 try:
     from server import PromptServer
     from aiohttp import web
-    
+    import urllib.parse as _urlparse
+    import socket as _socket
+
+    # Security: only allow loopback and private-LAN hosts for Ollama/Strata
+    # requests, preventing SSRF through a user-supplied url widget.
+    def _is_allowed_host(url):
+        try:
+            parts = _urlparse.urlparse(str(url or "").strip())
+            host = (parts.hostname or "").strip().lower()
+            if not host:
+                return False
+            if host in ("localhost", "127.0.0.1", "::1", "[::1]"):
+                return True
+            try:
+                ip = _socket.gethostbyname(host)
+            except Exception:
+                return False
+            if ip.startswith("127.") or ip == "::1":
+                return True
+            # RFC1918 private ranges + loopback
+            if ip.startswith("10.") or ip.startswith("192.168."):
+                return True
+            if ip.startswith("172."):
+                try:
+                    return 16 <= int(ip.split(".")[1]) <= 31
+                except Exception:
+                    return False
+            return False
+        except Exception:
+            return False
+
     @PromptServer.instance.routes.post("/bsai_ollama/get_models")
     async def get_models_endpoint(request):
         data = await request.json()
 
         url = data.get("url")
+        if not _is_allowed_host(url):
+            return web.json_response(
+                {"error": "Ollama host must be localhost or a private LAN address (SSRF guard)"},
+                status=400,
+            )
         client = Client(host=url)
 
         models = client.list().get('models', [])
@@ -52,59 +87,59 @@ class BSAI_MultiImageVideoReverse:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "backend": (["Ollama (本地 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)"],
-                            {"default": "Ollama (本地 11434)",
-                             "tooltip": "推理后端：Ollama 或 BSAI Strata HTTP"}),
-                "strata_quant": (["Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"],
-                            {"default": "Auto (自动适配)", "tooltip": "仅 Strata 后端生效：选择量化级别，Auto 自动选最快的"}),
+                "backend": (["Ollama (local 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)"],
+                            {"default": "Ollama (local 11434)",
+                             "tooltip": "Inference backend: Ollama or BSAI Strata HTTP"}),
+                "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"],
+                            {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level, Auto picks the fastest"}),
                 "system": ("STRING", {
                     "multiline": True,
-                    "default": "你是一位专业的图像和视频分析专家，擅长从多张图像和视频帧中分析并提取共同特征和主题。请详细分析以下内容，提取关键元素、风格、色彩、构图等信息，并生成详细的描述。",
-                    "tooltip": "系统提示词 - 用于设置模型的角色和行为"
+                    "default": "You are an expert image and video analyst, skilled at analyzing multiple images and video frames to extract common features and themes. Analyze the following content in detail, extract key elements, style, color, composition, and generate a detailed description.",
+                    "tooltip": "System prompt - sets the model role and behavior"
                 }),
                 "prompt": ("STRING", {
                     "multiline": True,
-                    "default": "请详细分析这些图像和视频帧，包括所有细节，并生成一个综合描述。",
-                    "tooltip": "用户提示词 - 你希望模型执行的任务"
+                    "default": "Analyze these images and video frames in detail, including all details, and generate a comprehensive description.",
+                    "tooltip": "User prompt - the task you want the model to perform"
                 }),
             },
             "optional": {
                 "model": (["qwen3:latest", "qwen3.5:latest", "qwen3.6:latest", "qwen3.8:latest", "gemma4:31b", "custom"],
-                          {"default": "qwen3.8:latest", "tooltip": "Ollama 模型选择（仅 Ollama 后端生效）"}),
+                          {"default": "qwen3.8:latest", "tooltip": "Ollama model selection (Ollama backend only)"}),
                 "url": ("STRING", {
                     "default": "http://127.0.0.1:11434",
-                    "tooltip": "Ollama服务器的URL（仅 Ollama 后端生效）"
+                    "tooltip": "Ollama server URL (Ollama backend only)"
                 }),
                 "custom_model": ("STRING", {
                     "default": "",
-                    "tooltip": "自定义模型名称（当选择custom时使用）"
+                    "tooltip": "Custom model name (used when custom is selected)"
                 }),
                 # 图像输入（最多10张）
-                "image1": ("IMAGE", {"forceInput": False, "tooltip": "第一张输入图像"}),
-                "image2": ("IMAGE", {"forceInput": False, "tooltip": "第二张输入图像"}),
-                "image3": ("IMAGE", {"forceInput": False, "tooltip": "第三张输入图像"}),
-                "image4": ("IMAGE", {"forceInput": False, "tooltip": "第四张输入图像"}),
-                "image5": ("IMAGE", {"forceInput": False, "tooltip": "第五张输入图像"}),
-                "image6": ("IMAGE", {"forceInput": False, "tooltip": "第六张输入图像"}),
-                "image7": ("IMAGE", {"forceInput": False, "tooltip": "第七张输入图像"}),
-                "image8": ("IMAGE", {"forceInput": False, "tooltip": "第八张输入图像"}),
-                "image9": ("IMAGE", {"forceInput": False, "tooltip": "第九张输入图像"}),
-                "image10": ("IMAGE", {"forceInput": False, "tooltip": "第十张输入图像"}),
+                "image1": ("IMAGE", {"forceInput": False, "tooltip": "First input image"}),
+                "image2": ("IMAGE", {"forceInput": False, "tooltip": "Second input image"}),
+                "image3": ("IMAGE", {"forceInput": False, "tooltip": "Third input image"}),
+                "image4": ("IMAGE", {"forceInput": False, "tooltip": "Fourth input image"}),
+                "image5": ("IMAGE", {"forceInput": False, "tooltip": "Fifth input image"}),
+                "image6": ("IMAGE", {"forceInput": False, "tooltip": "Sixth input image"}),
+                "image7": ("IMAGE", {"forceInput": False, "tooltip": "Seventh input image"}),
+                "image8": ("IMAGE", {"forceInput": False, "tooltip": "Eighth input image"}),
+                "image9": ("IMAGE", {"forceInput": False, "tooltip": "Ninth input image"}),
+                "image10": ("IMAGE", {"forceInput": False, "tooltip": "Tenth input image"}),
                 # 视频输入（最多5个视频）
-                "video1": ("IMAGE", {"forceInput": False, "tooltip": "第一个视频（帧序列）"}),
-                "video2": ("IMAGE", {"forceInput": False, "tooltip": "第二个视频（帧序列）"}),
-                "video3": ("IMAGE", {"forceInput": False, "tooltip": "第三个视频（帧序列）"}),
-                "video4": ("IMAGE", {"forceInput": False, "tooltip": "第四个视频（帧序列）"}),
-                "video5": ("IMAGE", {"forceInput": False, "tooltip": "第五个视频（帧序列）"}),
+                "video1": ("IMAGE", {"forceInput": False, "tooltip": "First video (frame sequence)"}),
+                "video2": ("IMAGE", {"forceInput": False, "tooltip": "Second video (frame sequence)"}),
+                "video3": ("IMAGE", {"forceInput": False, "tooltip": "Third video (frame sequence)"}),
+                "video4": ("IMAGE", {"forceInput": False, "tooltip": "Fourth video (frame sequence)"}),
+                "video5": ("IMAGE", {"forceInput": False, "tooltip": "Fifth video (frame sequence)"}),
                 # 视频采样参数
                 "video_sample_interval": ("INT", {"default": 10, "min": 1, "max": 100, "step": 1, 
-                                                  "tooltip": "视频帧采样间隔，每隔多少帧取一帧"}),
+                                                  "tooltip": "Video frame sampling interval (take one frame every N frames)"}),
                 "max_frames_per_video": ("INT", {"default": 5, "min": 1, "max": 20, "step": 1, 
-                                                 "tooltip": "每个视频最多采样的帧数"}),
+                                                 "tooltip": "Maximum number of frames sampled per video"}),
                 # 推理参数
-                "temperature": ("FLOAT", {"default": 0.7, "min": 0, "max": 1, "step": 0.05, "tooltip": "控制生成文本的创意程度，值越高越创意"}),
-                "top_p": ("FLOAT", {"default": 0.9, "min": 0, "max": 1, "step": 0.05, "tooltip": "控制生成文本的多样性，值越高越多样"}),
-                "max_tokens": ("INT", {"default": 32768, "min": 1, "max": 100000, "step": 1, "tooltip": "生成的最大令牌数"}),
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0, "max": 1, "step": 0.05, "tooltip": "Controls text creativity; higher = more creative"}),
+                "top_p": ("FLOAT", {"default": 0.9, "min": 0, "max": 1, "step": 0.05, "tooltip": "Controls text diversity; higher = more varied"}),
+                "max_tokens": ("INT", {"default": 32768, "min": 1, "max": 100000, "step": 1, "tooltip": "Maximum number of tokens to generate"}),
             }
         }
 
@@ -118,7 +153,7 @@ class BSAI_MultiImageVideoReverse:
     OUTPUT_IS_LIST = (False, False, True)
     FUNCTION = "multi_media_reverse"
     CATEGORY = "BSAI"
-    DESCRIPTION = "BSAI 多图像视频反推节点，使用本地Ollama模型分析多张图像和视频帧并生成描述"
+    DESCRIPTION = "BSAI multi-image/video reverse prompt node: uses a local Ollama model to analyze multiple images and video frames and generate a description"
 
     def _process_image_tensor(self, img_tensor):
         """处理单个图像张量，转换为base64编码"""
@@ -220,6 +255,10 @@ class BSAI_MultiImageVideoReverse:
             selected_model = model
         
         try:
+            if not _is_allowed_host(url):
+                error_msg = "Ollama host must be localhost or a private LAN address (SSRF guard)"
+                print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
+                return error_msg, "", []
             client = Client(host=url)
         except Exception as e:
             error_msg = f"创建Ollama客户端失败: {str(e)}"
@@ -371,5 +410,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BSAI_MultiImageVideoReverse": "BSAI 多图像视频反推",
+    "BSAI_MultiImageVideoReverse": "BSAI Multi-Image Video Reverse",
 }

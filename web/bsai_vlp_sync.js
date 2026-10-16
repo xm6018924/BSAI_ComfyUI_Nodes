@@ -252,7 +252,7 @@ function createPlayer(node) {
 
     const title = document.createElement("div");
     title.className = "bsai-vlp-player-title";
-    title.textContent = "🎬 BSAI 帧选择器";
+    title.textContent = "🎬 BSAI Frame Selector";
     container.appendChild(title);
 
     const video = document.createElement("video");
@@ -263,17 +263,17 @@ function createPlayer(node) {
 
     const info = document.createElement("div");
     info.className = "bsai-vlp-player-info";
-    info.innerHTML = "<span>⏱ 0.00s</span><span>🎞 帧 0</span><span class='bsai-fps-tag'>检测中...</span>";
+    info.innerHTML = "<span>⏱ 0.00s</span><span>🎞 Frame 0</span><span class='bsai-fps-tag'>Detecting...</span>";
     container.appendChild(info);
 
     const syncBtn = document.createElement("button");
     syncBtn.className = "bsai-vlp-player-btn";
-    syncBtn.textContent = "📸 同步当前帧到 Frame Index";
+    syncBtn.textContent = "📸 Sync Current Frame to Frame Index";
     container.appendChild(syncBtn);
 
     const hint = document.createElement("div");
     hint.className = "bsai-vlp-player-hint";
-    hint.textContent = "💡 暂停视频自动同步帧号";
+    hint.textContent = "💡 Pause the video to auto-sync the frame number";
     container.appendChild(hint);
 
     // ---- 真实 FPS / 总帧数：从后端 /bsai_vlp/video_info 获取（100% 准确） ----
@@ -309,10 +309,10 @@ function createPlayer(node) {
         const tag = info.querySelector(".bsai-fps-tag");
         if (!tag) return;
         if (realFps !== null) {
-            tag.textContent = "真实 " + realFps.toFixed(2) + "fps";
+            tag.textContent = "Real " + realFps.toFixed(2) + "fps";
             tag.style.color = "#4ade80";
         } else {
-            tag.textContent = "FPS检测中...";
+            tag.textContent = "Detecting FPS...";
             tag.style.color = "#fbbf24";
         }
     }
@@ -347,8 +347,8 @@ function createPlayer(node) {
         const fps = getCurrentFps();
 
         info.innerHTML = "<span>⏱ " + ct.toFixed(2) + "s</span>" +
-                       "<span>🎞 帧 " + frame + "</span>" +
-                       "<span class='bsai-fps-tag'>" + (realFps !== null ? "真实 " + realFps.toFixed(2) + "fps" : "FPS检测中...") + "</span>";
+                       "<span>🎞 Frame " + frame + "</span>" +
+                       "<span class='bsai-fps-tag'>" + (realFps !== null ? "Real " + realFps.toFixed(2) + "fps" : "Detecting FPS...") + "</span>";
 
         if (video.paused) {
             setFrameIndex(node, frame);
@@ -367,8 +367,8 @@ function createPlayer(node) {
 
     video.addEventListener("pause", function() {
         setTimeout(syncFrame, 80);
-        syncBtn.textContent = "✅ 已同步";
-        setTimeout(function() { syncBtn.textContent = "📸 同步当前帧到 Frame Index"; }, 1200);
+        syncBtn.textContent = "✅ Synced";
+        setTimeout(function() { syncBtn.textContent = "📸 Sync Current Frame to Frame Index"; }, 1200);
     });
 
     video.addEventListener("seeked", function() {
@@ -379,18 +379,18 @@ function createPlayer(node) {
         e.stopPropagation();
         const frame = getCurrentFrame();
         setFrameIndex(node, frame);
-        syncBtn.textContent = "✅ 已同步到帧 " + frame;
-        setTimeout(function() { syncBtn.textContent = "📸 同步当前帧到 Frame Index"; }, 1500);
+        syncBtn.textContent = "✅ Synced to Frame " + frame;
+        setTimeout(function() { syncBtn.textContent = "📸 Sync Current Frame to Frame Index"; }, 1500);
     });
 
     video.addEventListener("error", function() {
         hint.style.color = "#ef4444";
-        hint.textContent = "⚠️ 视频加载失败";
+        hint.textContent = "⚠️ Video failed to load";
     });
 
     video.addEventListener("loadedmetadata", function() {
         hint.style.color = "#475569";
-        hint.textContent = "💡 暂停视频自动同步帧号";
+        hint.textContent = "💡 Pause the video to auto-sync the frame number";
     });
 
     // 防止拖动节点
@@ -430,7 +430,7 @@ function updatePlayerVideo(node) {
 
     const url = getVideoUrl(node);
     if (!url) {
-        player.hint.textContent = "请先选择视频文件";
+        player.hint.textContent = "Please select a video file first";
         player.hint.style.color = "#64748b";
         return;
     }
@@ -439,7 +439,7 @@ function updatePlayerVideo(node) {
         player.currentSrc = url;
         player.video.src = url;
         player.video.load();
-        player.hint.textContent = "加载中...";
+        player.hint.textContent = "Loading...";
         player.hint.style.color = "#64748b";
     }
 }

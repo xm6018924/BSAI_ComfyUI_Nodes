@@ -21,14 +21,14 @@ class BSAI_MergeImages:
         return {
             "required": {
                 "images": ("IMAGE",),
-                "layout": (["Auto", "2x2 (4宫格)", "2x3 (6宫格)", "3x2 (6宫格)", "3x3 (9宫格)", "Custom"], {"default": "Auto", "tooltip": "图像排版方式"}),
+                "layout": (["Auto", "2x2 Grid", "2x3 Grid", "3x2 Grid", "3x3 Grid", "Custom"], {"default": "Auto", "tooltip": "Image grid layout"}),
             },
             "optional": {
-                "custom_rows": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1, "tooltip": "自定义行数（选择Custom时生效）"}),
-                "custom_cols": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1, "tooltip": "自定义列数（选择Custom时生效）"}),
-                "expected_count": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1, "tooltip": "预期图像数量（0表示自动检测）"}),
-                "width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1, "tooltip": "自定义输出宽度，0表示使用原始图像尺寸"}),
-                "height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1, "tooltip": "自定义输出高度，0表示使用原始图像尺寸"}),
+                "custom_rows": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1, "tooltip": "Custom row count (used when Custom is selected)"}),
+                "custom_cols": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1, "tooltip": "Custom column count (used when Custom is selected)"}),
+                "expected_count": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1, "tooltip": "Expected image count (0 = auto-detect)"}),
+                "width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1, "tooltip": "Custom output width; 0 = use original image size"}),
+                "height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1, "tooltip": "Custom output height; 0 = use original image size"}),
                 "save_output": ("BOOLEAN", {"default": True}),
                 "output_prefix": ("STRING", {"default": "merged"}),
             },
@@ -89,13 +89,13 @@ class BSAI_MergeImages:
 
     @staticmethod
     def _get_grid_size(layout, custom_rows, custom_cols):
-        if layout == "2x2 (4宫格)":
+        if layout in ("2x2 Grid", "2x2 (4宫格)"):
             return 2, 2
-        elif layout == "2x3 (6宫格)":
+        elif layout in ("2x3 Grid", "2x3 (6宫格)"):
             return 3, 2
-        elif layout == "3x2 (6宫格)":
+        elif layout in ("3x2 Grid", "3x2 (6宫格)"):
             return 2, 3
-        elif layout == "3x3 (9宫格)":
+        elif layout in ("3x3 Grid", "3x3 (9宫格)"):
             return 3, 3
         elif layout == "Custom":
             return max(int(custom_cols), 1), max(int(custom_rows), 1)
@@ -183,14 +183,15 @@ class BSAI_MergeImages:
             y = row * cell_height
             merged_image.paste(resized, (x, y))
 
-        # Save
+        # Save (always inside the ComfyUI output directory)
         if save_output:
             try:
-                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-                output_dir = os.path.join(project_root, "output")
+                import folder_paths as _fp
+                output_dir = os.path.realpath(_fp.get_output_directory())
                 os.makedirs(output_dir, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"{output_prefix}_{timestamp}.png"
+                prefix = os.path.basename(str(output_prefix or "merged").strip()) or "merged"
+                filename = f"{prefix}_{timestamp}.png"
                 filepath = os.path.join(output_dir, filename)
                 merged_image.save(filepath, quality=95)
                 print(f"[BSAI_MergeImages] Saved to: {filepath}")

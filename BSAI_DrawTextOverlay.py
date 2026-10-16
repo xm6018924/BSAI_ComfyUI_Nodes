@@ -159,16 +159,16 @@ class BSAI_DrawTextOverlay:
                 "text": ("STRING", {"multiline": True, "default": ""}),
                 "font_name": (font_choices, {
                     "default": font_choices[0] if font_choices else _DEFAULT_FONT_LABEL,
-                    "tooltip": "选择系统字体。列表来自 Windows 字体目录，支持各国文字。",
+                    "tooltip": "Select a system font. The list comes from the Windows fonts directory and supports many scripts.",
                 }),
                 "font_size": ("FLOAT", {
                     "default": 5.0, "min": 0.5, "max": 50.0, "step": 0.5,
-                    "tooltip": "字号，按图像高度的百分比计算。",
+                    "tooltip": "Font size, as a percentage of image height.",
                 }),
-                "color": ("COLOR", {"default": "#ffffff", "tooltip": "文字颜色。"}),
+                "color": ("COLOR", {"default": "#ffffff", "tooltip": "Text color."}),
                 "position": (["top", "bottom"], {"default": "top"}),
                 "align": (["left", "center", "right"], {"default": "left"}),
-                "outline": ("BOOLEAN", {"default": True, "tooltip": "绘制黑色描边以增强可读性。"}),
+                "outline": ("BOOLEAN", {"default": True, "tooltip": "Draw a black outline to improve readability."}),
             },
         }
 
