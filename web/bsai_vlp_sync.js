@@ -96,33 +96,33 @@ debugBadge.onclick = function() {
     const graph = app.canvas?.graph || app.graph;
     let info = "BSAI VLP\n==========\n";
 
-    // 直接扫描 DOM 节点
+    // Scan DOM nodes directly
     const domNodes = document.querySelectorAll(".litegraph-node");
-    info += "DOM 节点数: " + domNodes.length + "\n\n";
+    info += "DOM nodes: " + domNodes.length + "\n\n";
 
     for (let i = 0; i < domNodes.length; i++) {
         const d = domNodes[i];
         const id = d.getAttribute("data-id");
-        const title = d.querySelector(".title")?.textContent || "(无标题)";
-        const hasPlayer = d.querySelector(".bsai-vlp-player") ? "✅" : "❌";
-        info += "#" + id + " " + title.substring(0, 30) + " 播放器:" + hasPlayer + "\n";
+        const title = d.querySelector(".title")?.textContent || "(untitled)";
+        const hasPlayer = d.querySelector(".bsai-vlp-player") ? "yes" : "no";
+        info += "#" + id + " " + title.substring(0, 30) + " player:" + hasPlayer + "\n";
 
-        // 扫描所有子元素，找出带 video/canvas 的
+        // Scan children for video/canvas elements
         const allVids = d.querySelectorAll("video");
         const allCavs = d.querySelectorAll("canvas");
         info += "  video: " + allVids.length + "  canvas: " + allCavs.length + "\n";
 
-        // 打印 .widgets 下的完整结构
+        // Print the full .widgets structure
         const widgetsEl = d.querySelector(".widgets");
         if (widgetsEl) {
-            info += "  --- .widgets 子元素 ---\n";
+            info += "  --- .widgets children ---\n";
             for (let w = 0; w < widgetsEl.children.length; w++) {
                 const child = widgetsEl.children[w];
                 const rect = child.getBoundingClientRect();
                 const tag = child.tagName;
                 const cls = (child.className || "").substring(0, 50);
-                const hasVid = child.querySelector("video, canvas") ? " 🎥" : "";
-                const isOur = child.classList?.contains("bsai-vlp-player") ? " [我方]" : "";
+                const hasVid = child.querySelector("video, canvas") ? " [media]" : "";
+                const isOur = child.classList?.contains("bsai-vlp-player") ? " [ours]" : "";
                 info += "  [" + w + "] " + tag + "." + cls + " [" + Math.round(rect.width) + "x" + Math.round(rect.height) + "]" + hasVid + isOur + "\n";
 
                 // 如果有视频，再深入一层
@@ -141,10 +141,10 @@ debugBadge.onclick = function() {
         info += "\n";
     }
 
-    // Graph 信息
+    // Graph info
     if (graph) {
         const nodes = graph._nodes || graph.nodes || [];
-        info += "\nGraph 节点: " + nodes.length + "\n";
+        info += "\nGraph nodes: " + nodes.length + "\n";
         for (let i = 0; i < nodes.length && i < 5; i++) {
             const n = nodes[i];
             info += "  #" + n.id + " " + n.type + " (widgets:" + (n.widgets?.length || 0) + ")\n";
@@ -155,7 +155,7 @@ debugBadge.onclick = function() {
                     info += "    [" + w + "] " + ww.name + " (" + ww.type + ")" + hasEl + "\n";
                 }
             }
-            if (n.__bsai_vlp_player) info += "    ✅ 已注入播放器\n";
+            if (n.__bsai_vlp_player) info += "    [player injected]\n";
         }
     }
 
@@ -449,7 +449,7 @@ function injectPlayerDOM(node) {
     if (node.__bsai_vlp_injected) return;
     node.__bsai_vlp_injected = true;
 
-    console.log("[BSAI VLP] 开始注入节点 #" + node.id + " 类型: " + node.type);
+    console.log("[BSAI VLP] Injecting into node #" + node.id + " type: " + node.type);
 
     // 先创建播放器 DOM
     const player = createPlayer(node);
@@ -469,7 +469,7 @@ function injectPlayerDOM(node) {
             widget.serializeValue = function() { return undefined; };
 
             node.__bsai_vlp_widget = widget;
-            console.log("[BSAI VLP] addDOMWidget 成功 #" + node.id);
+            console.log("[BSAI VLP] addDOMWidget succeeded #" + node.id);
 
             // 隐藏内置视频预览 + 持续监控
             hideBuiltinVideoPreview(node);
@@ -487,12 +487,12 @@ function injectPlayerDOM(node) {
             }
             return;
         } catch(e) {
-            console.error("[BSAI VLP] addDOMWidget 失败:", e);
+            console.error("[BSAI VLP] addDOMWidget failed:", e);
         }
     }
 
     // 方案2: DOM 注入兜底
-    console.log("[BSAI VLP] 尝试 DOM 注入兜底 #" + node.id);
+    console.log("[BSAI VLP] Trying DOM injection fallback #" + node.id);
     injectPlayerDOMFallback(node, player, 0);
 }
 
@@ -523,7 +523,7 @@ function hideBuiltinVideoPreview(node, nodeEl) {
             node.widgets.splice(i, 1);
             removedFromArray = true;
             hiddenCount++;
-            console.log("[BSAI VLP] 从 widgets 数组移除:", w.name, "(类型:", w.type + ")");
+            console.log("[BSAI VLP] Removing from widgets array:", w.name, "(type:", w.type + ")");
         }
     }
 
@@ -578,7 +578,7 @@ function hideBuiltinVideoPreview(node, nodeEl) {
                         child.style.margin = "0";
                         child.style.padding = "0";
                         hiddenCount++;
-                        console.log("[BSAI VLP] 隐藏 file widget 预览:", tag + "." + cls.substring(0, 40));
+                        console.log("[BSAI VLP] Hiding file widget preview:", tag + "." + cls.substring(0, 40));
                     }
                 }
             }
@@ -598,12 +598,12 @@ function hideBuiltinVideoPreview(node, nodeEl) {
             el.style.margin = "0";
             el.style.padding = "0";
             hiddenCount++;
-            console.log("[BSAI VLP] 全局隐藏预览元素:", el.className?.substring(0, 50), rect.width + "x" + rect.height);
+            console.log("[BSAI VLP] Globally hiding preview element:", el.className?.substring(0, 50), rect.width + "x" + rect.height);
         }
     }
 
     if (hiddenCount > 0) {
-        console.log("[BSAI VLP] 共隐藏 " + hiddenCount + " 个内置预览元素");
+        console.log("[BSAI VLP] Hidden " + hiddenCount + " built-in preview elements");
     }
 }
 
@@ -636,7 +636,7 @@ function startHideMonitor(node) {
                     _element = val;
                     if (val) {
                         val.style.display = "none";
-                        console.log("[BSAI VLP] 拦截 video-preview element 创建，立即隐藏");
+                        console.log("[BSAI VLP] Intercepted video-preview element creation, hiding immediately");
                     }
                 },
                 configurable: true,
@@ -655,7 +655,7 @@ function startHideMonitor(node) {
                 // 检查新增元素本身
                 if (isVideoPreviewEl(node)) {
                     node.style.display = "none";
-                    console.log("[BSAI VLP] MutationObserver 隐藏预览:", node.className?.substring(0, 40));
+                    console.log("[BSAI VLP] MutationObserver hid preview:", node.className?.substring(0, 40));
                 }
                 // 检查子元素
                 const innerPreviews = node.querySelectorAll?.("[class*='video-preview'], [class*='VideoPreview'], [class*='videopreview']");
@@ -685,7 +685,7 @@ function startHideMonitor(node) {
 
 function injectPlayerDOMFallback(node, player, tries) {
     if (tries > 20) {
-        console.error("[BSAI VLP] DOM 注入失败，已达最大重试次数 #" + node.id);
+        console.error("[BSAI VLP] DOM injection failed, max retries reached #" + node.id);
         return;
     }
 
@@ -707,7 +707,7 @@ function injectPlayerDOMFallback(node, player, tries) {
     }
 
     widgetsEl.appendChild(player.container);
-    console.log("[BSAI VLP] DOM 注入成功 #" + node.id);
+    console.log("[BSAI VLP] DOM injection succeeded #" + node.id);
 
     // 隐藏内置视频预览 + 持续监控
     hideBuiltinVideoPreview(node, nodeEl);
@@ -737,7 +737,7 @@ app.registerExtension({
              name.toLowerCase().indexOf("video") !== -1 &&
              name.toLowerCase().indexOf("loader") !== -1)) {
 
-            console.log("[BSAI VLP] 注册节点扩展:", name);
+            console.log("[BSAI VLP] Registering node extension:", name);
 
             // 节点添加到画布时
             const onAdded = nodeType.prototype.onAdded;
@@ -762,7 +762,7 @@ app.registerExtension({
     },
 });
 
-console.log("[BSAI VLP] 扩展已注册 (ES module)");
+console.log("[BSAI VLP] Extension registered (ES module)");
 
 // ===== 全局扫描兜底（防止 onAdded/onConfigure 钩子不生效） =====
 function scanAndInjectAll() {
@@ -777,7 +777,7 @@ function scanAndInjectAll() {
             type.toLowerCase().indexOf("video") !== -1 &&
             type.toLowerCase().indexOf("loader") !== -1) {
             if (!n.__bsai_vlp_player) {
-                console.log("[BSAI VLP] 全局扫描发现节点:", type, "#" + n.id);
+                console.log("[BSAI VLP] Global scan found node:", type, "#" + n.id);
                 injectPlayerDOM(n);
             }
         }
@@ -796,4 +796,4 @@ const scanTimer = setInterval(function() {
     }
 }, 1000);
 
-console.log("[BSAI VLP] 全局扫描已启动");
+console.log("[BSAI VLP] Global scan started");

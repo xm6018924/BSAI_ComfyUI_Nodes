@@ -68,7 +68,7 @@ class BSAI_AudioDurationToFrames:
         else:
             frames = int(exact_frames)
         
-        print(f"[BSAI AudioDurationToFrames] 音频时长: {audio_duration}s, FPS: {fps}, 帧数: {frames}")
+        print(f"[BSAI AudioDurationToFrames] duration: {audio_duration}s, FPS: {fps}, frames: {frames}")
         
         return (frames, exact_frames)
 
@@ -122,7 +122,7 @@ class BSAI_AudioFramesToDuration:
         """
         duration = frames / fps
         
-        print(f"[BSAI AudioFramesToDuration] 帧数: {frames}, FPS: {fps}, 音频时长: {duration:.2f}s")
+        print(f"[BSAI AudioFramesToDuration] frames: {frames}, FPS: {fps}, duration: {duration:.2f}s")
         
         return (duration,)
 

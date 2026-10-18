@@ -140,7 +140,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
     CATEGORY = "BSAI"
 
     RETURN_TYPES = (IO.VIDEO, IO.VIDEO, "IMAGE", "PATH", "INT", "INT", "IMAGE", "AUDIO")
-    RETURN_NAMES = ("video", "single_frame", "single_frame_image", "path", "total_frames", "current_frame", "frames (H3视频帧)", "audio (H3音频)")
+    RETURN_NAMES = ("video", "single_frame", "single_frame_image", "path", "total_frames", "current_frame", "frames (H3 clip)", "audio (H3 clip)")
     FUNCTION = "load_video_plus"
 
     def _read_frame_at(self, video_path, target_frame):
@@ -150,19 +150,19 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
         """
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            raise ValueError(f"无法打开视频: {video_path}")
+            raise ValueError(f"Cannot open video: {video_path}")
 
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         target = max(0, min(int(target_frame), total - 1))
 
-        # 快速定位到目标帧之前（往前多跳一些，确保落在关键帧之前）
+        # Seek close to the target frame (a bit earlier so we land before a keyframe)
         seek_target = max(0, target - 60)
         cap.set(cv2.CAP_PROP_POS_FRAMES, seek_target)
 
-        # 获取 set 之后的实际位置（可能不准）
+        # Actual position after set() (may be imprecise)
         actual_pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
 
-        # 逐帧 grab 到目标帧
+        # Grab frames one by one until the target
         grabbed = 0
         while actual_pos < target:
             if not cap.grab():
@@ -170,17 +170,17 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
             actual_pos += 1
             grabbed += 1
 
-        # 读取目标帧
+        # Read the target frame
         ret, frame = cap.read()
         cap.release()
 
         if not ret or frame is None:
-            # 如果失败，退回用简单方式读第一帧
+            # Fallback: read the first frame with a fresh capture
             cap2 = cv2.VideoCapture(video_path)
             ret2, frame2 = cap2.read()
             cap2.release()
             if not ret2:
-                raise ValueError(f"无法读取视频帧 (目标帧 {target})")
+                raise ValueError(f"Cannot read video frame (target frame {target})")
             return frame2, 0
 
         return frame, target
@@ -285,7 +285,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
             """
             cap2 = cv2.VideoCapture(video_path)
             if not cap2.isOpened():
-                raise ValueError(f"无法打开视频: {video_path}")
+                raise ValueError(f"Cannot open video: {video_path}")
 
             total = int(cap2.get(cv2.CAP_PROP_FRAME_COUNT))
             s = max(0, min(int(start_frame), total - 1))
@@ -376,7 +376,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
                         clipped = waveform[:, :, start_sample:end_sample]
                         audio_out = {"waveform": clipped, "sample_rate": sample_rate}
         except Exception as e:
-            print(f"[BSAI VideoLoaderPlus] 音频提取失败 / Audio extraction failed: {e}")
+            print(f"[BSAI VideoLoaderPlus] Audio extraction failed: {e}")
             audio_out = None
 
         return (main_video, single_frame_video, single_image, video_path, total_frames, single_idx, frames_out, audio_out)
@@ -414,7 +414,7 @@ class _BSAI_QwenStorage:
     @classmethod
     def load(cls, config):
         if Llama is None:
-            raise RuntimeError("未检测到 llama-cpp-python（llama_cpp）。请先安装该依赖。")
+            raise RuntimeError("llama-cpp-python (llama_cpp) is not installed. Please install it first.")
 
         if cls.model and cls.settings == config:
             return cls.model
@@ -423,19 +423,19 @@ class _BSAI_QwenStorage:
 
         model_path = os.path.join(folder_paths.models_dir, "LLM", config["model"])
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"找不到模型文件：{model_path}")
+            raise FileNotFoundError(f"Model file not found: {model_path}")
 
         if _bsai_check_mtp_layer(model_path):
             no_mtp_path = _bsai_strip_mtp_layer(model_path)
             if no_mtp_path and os.path.exists(no_mtp_path):
                 model_path = no_mtp_path
 
-        mmproj = config.get("mmproj", "无")
+        mmproj = config.get("mmproj", "None")
         mmproj_path = None
-        if mmproj and mmproj != "无":
+        if mmproj and mmproj != "None":
             mmproj_path = os.path.join(folder_paths.models_dir, "LLM", mmproj)
             if not os.path.exists(mmproj_path):
-                raise FileNotFoundError(f"找不到 mmproj 文件：{mmproj_path}")
+                raise FileNotFoundError(f"mmproj file not found: {mmproj_path}")
 
         family = config["family"]
         think = config.get("think", False)
@@ -446,21 +446,21 @@ class _BSAI_QwenStorage:
         if mmproj_path:
             if family in ("Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL"):
                 if Qwen35ChatHandler is None:
-                    raise RuntimeError("当前 llama-cpp-python 不支持 Qwen35ChatHandler，请更新 llama-cpp-python。")
+                    raise RuntimeError("Current llama-cpp-python does not support Qwen35ChatHandler; please update llama-cpp-python.")
                 try:
                     chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
                     chat_handler = Qwen35ChatHandler(clip_model_path=mmproj_path, verbose=False, use_gpu=False, image_min_tokens=1024)
             elif family == "Qwen3-VL":
                 if Qwen3VLChatHandler is None:
-                    raise RuntimeError("当前 llama-cpp-python 不支持 Qwen3VLChatHandler，请更新 llama-cpp-python。")
+                    raise RuntimeError("Current llama-cpp-python does not support Qwen3VLChatHandler; please update llama-cpp-python.")
                 try:
                     chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, force_reasoning=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
                     chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path, verbose=False, use_gpu=False, image_min_tokens=1024)
             elif family == "Gemma4":
                 if Gemma4ChatHandler is None:
-                    raise RuntimeError("当前 llama-cpp-python 不支持 Gemma4ChatHandler，请更新 llama-cpp-python到0.3.36+。")
+                    raise RuntimeError("Current llama-cpp-python does not support Gemma4ChatHandler; please update llama-cpp-python to >=0.3.36.")
                 try:
                     chat_handler = Gemma4ChatHandler(clip_model_path=mmproj_path, enable_thinking=think, verbose=False, use_gpu=False, image_min_tokens=1024)
                 except Exception:
@@ -493,38 +493,38 @@ class _BSAI_QwenStorage:
                         except Exception:
                             pass
                     raise RuntimeError(
-                        "模型加载失败：该 GGUF 文件包含 MTP/NextN 预测层（nextn_predict_layers），\n"
-                        "当前 llama-cpp-python 版本不支持此特性。\n\n"
-                        "解决方案：\n"
-                        "1. 已尝试自动生成去 MTP 版本，请检查同目录下是否有 -noMTP.gguf 文件\n"
-                        "2. 手动使用去 MTP 版本的 GGUF 文件\n"
-                        "3. 或使用不含 MTP 层的 Qwen3.5/3.6 模型作为替代\n"
-                        f"原始错误：{e}"
+                        "Model load failed: this GGUF file contains an MTP/NextN prediction layer "
+                        "(nextn_predict_layers), which the current llama-cpp-python build does not support.\n\n"
+                        "Solutions:\n"
+                        "1. An attempt was made to auto-generate an MTP-stripped version; check whether a -noMTP.gguf file exists next to the original.\n"
+                        "2. Manually use an MTP-stripped GGUF file.\n"
+                        "3. Or use a Qwen3.5/3.6 model without the MTP layer.\n"
+                        f"Original error: {e}"
                     )
                 raise RuntimeError(
-                    "模型加载失败：Failed to load model from file\n" +
-                    "可能的原因：\n" +
-                    "1. 模型文件损坏或格式不兼容\n" +
-                    "2. llama-cpp-python 版本不支持该模型架构\n" +
-                    "3. 模型文件路径错误\n" +
-                    "建议：\n" +
-                    "- 检查模型文件完整性\n" +
-                    "- 更新 llama-cpp-python 到最新版本\n" +
-                    "- 确保模型路径正确"
+                    "Model load failed: Failed to load model from file\n" +
+                    "Possible causes:\n" +
+                    "1. The model file is corrupted or the format is unsupported\n" +
+                    "2. The installed llama-cpp-python version does not support this model architecture\n" +
+                    "3. The model file path is wrong\n" +
+                    "Suggestions:\n" +
+                    "- Verify model file integrity\n" +
+                    "- Update llama-cpp-python to the latest version\n" +
+                    "- Make sure the model path is correct"
                 )
             if "Failed to create context with model" in str(e):
                 raise RuntimeError(
-                    "模型加载失败：Failed to create context with model\n" +
-                    "可能的原因：\n" +
-                    "1. 模型文件损坏或格式不兼容\n" +
-                    "2. llama-cpp-python 版本不支持该模型\n" +
-                    "3. 显存不足\n" +
-                    "4. 模型文件路径错误\n" +
-                    "建议：\n" +
-                    "- 检查模型文件完整性\n" +
-                    "- 更新 llama-cpp-python 到最新版本\n" +
-                    "- 减少 GPU 层数或使用更小的模型\n" +
-                    "- 确保模型路径正确"
+                    "Model load failed: Failed to create context with model\n" +
+                    "Possible causes:\n" +
+                    "1. The model file is corrupted or the format is unsupported\n" +
+                    "2. The installed llama-cpp-python version does not support this model\n" +
+                    "3. Insufficient VRAM\n" +
+                    "4. The model file path is wrong\n" +
+                    "Suggestions:\n" +
+                    "- Verify model file integrity\n" +
+                    "- Update llama-cpp-python to the latest version\n" +
+                    "- Reduce GPU layers or use a smaller model\n" +
+                    "- Make sure the model path is correct"
                 )
             raise
 
@@ -827,12 +827,12 @@ class _BSAI_StrataHTTPBackend:
             s.connect((u.hostname, u.port or 80))
             return s
 
-        # 第一次尝试
+        # First attempt
         try:
             s = _try_connect()
         except Exception as e:
-            print(f"[BSAI] Strata 连接失败，正在自动启动服务... ({e})")
-            # 尝试调用 ComfyUI API 启动 Strata
+            print(f"[BSAI] Strata connection failed, auto-starting service... ({e})")
+            # Try to start Strata via the ComfyUI API
             started = False
             for port in [8188, 8191, 8000]:
                 try:
@@ -842,7 +842,7 @@ class _BSAI_StrataHTTPBackend:
                     with _urllib.request.urlopen(req, timeout=5) as resp:
                         result = _json.loads(resp.read().decode())
                         if result.get("ok"):
-                            print(f"[BSAI] Strata 启动成功 (pid={result.get('pid')})")
+                            print(f"[BSAI] Strata started successfully (pid={result.get('pid')})")
                             started = True
                             break
                 except Exception:
@@ -850,24 +850,24 @@ class _BSAI_StrataHTTPBackend:
 
             if not started:
                 raise ConnectionError(
-                    f"无法连接 Strata 服务 ({self.base_url})，自动启动也失败。\n"
-                    "请先运行 START-HERE.bat 启动 Strata 服务，再运行工作流。"
+                    f"Cannot connect to Strata service ({self.base_url}); auto-start also failed.\n"
+                    "Please run START-HERE.bat to start the Strata service, then run the workflow."
                 )
 
-            # 等待服务就绪
-            print("[BSAI] 等待 Strata 服务就绪...")
+            # Wait for the service to become ready
+            print("[BSAI] Waiting for Strata service to become ready...")
             for i in range(30):
                 _time.sleep(2)
                 try:
                     s = _try_connect()
-                    print(f"[BSAI] Strata 服务已就绪")
+                    print("[BSAI] Strata service is ready")
                     break
                 except Exception:
                     if i == 29:
-                        raise ConnectionError("Strata 服务启动超时（60秒），请检查日志。")
+                        raise ConnectionError("Strata service startup timed out (60s); please check the logs.")
                     continue
             else:
-                raise ConnectionError("Strata 服务启动超时。")
+                raise ConnectionError("Strata service startup timed out.")
 
         try:
             conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
@@ -920,15 +920,15 @@ class BSAI_QwenModelLoader:
         if str(backend).startswith("BSAI Strata"):
             # Parse quant label
             quant_map = {
-                "Auto (auto)": None, "Auto (自动适配)": None,
-                "Q2_0 (fastest)": "Q2_0", "Q2_0 (最快)": "Q2_0",
-                "IQ2_XS (slightly better)": "IQ2_XS", "IQ2_XS (略好)": "IQ2_XS",
-                "IQ3_XXS (better)": "IQ3_XXS", "IQ3_XXS (更好)": "IQ3_XXS",
-                "IQ3_S (best)": "IQ3_S", "IQ3_S (最好)": "IQ3_S",
+                "Auto (auto)": None,
+                "Q2_0 (fastest)": "Q2_0",
+                "IQ2_XS (slightly better)": "IQ2_XS",
+                "IQ3_XXS (better)": "IQ3_XXS",
+                "IQ3_S (best)": "IQ3_S",
             }
             quant = quant_map.get(strata_quant, None)
 
-            # 自动检查并启动 Strata 服务
+            # Auto-check and start the Strata service
             try:
                 import socket
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -936,12 +936,12 @@ class BSAI_QwenModelLoader:
                 result = s.connect_ex(("127.0.0.1", 8080))
                 s.close()
                 if result != 0:
-                    print("[BSAI] Strata 服务未运行，正在自动启动...")
-                    # 调用 ComfyUI API 启动 Strata
+                    print("[BSAI] Strata service is not running, auto-starting...")
+                    # Call the ComfyUI API to start Strata
                     try:
                         import urllib.request
                         import json
-                        # 尝试常见端口
+                        # Try common ports
                         for port in [8188, 8191, 8000]:
                             try:
                                 url = f"http://127.0.0.1:{port}/bsai/strata/start"
@@ -949,8 +949,8 @@ class BSAI_QwenModelLoader:
                                 with urllib.request.urlopen(req, timeout=5) as resp:
                                     data = json.loads(resp.read().decode())
                                     if data.get("ok"):
-                                        print(f"[BSAI] Strata 服务启动成功 (pid={data.get('pid')})")
-                                        # 等待服务启动
+                                        print(f"[BSAI] Strata started successfully (pid={data.get('pid')})")
+                                        # Wait for the service to start
                                         import time
                                         for i in range(30):
                                             time.sleep(2)
@@ -959,24 +959,24 @@ class BSAI_QwenModelLoader:
                                             r2 = s2.connect_ex(("127.0.0.1", 8080))
                                             s2.close()
                                             if r2 == 0:
-                                                print("[BSAI] Strata 服务已就绪")
+                                                print("[BSAI] Strata service is ready")
                                                 break
                                         break
                             except Exception:
                                 continue
                     except Exception as e:
-                        print(f"[BSAI] 自动启动 Strata 失败: {e}")
-                        print("[BSAI] 请手动运行 START-HERE.bat 启动 Strata 服务")
+                        print(f"[BSAI] Auto-start Strata failed: {e}")
+                        print("[BSAI] Please run START-HERE.bat to start the Strata service manually")
             except Exception:
                 pass
 
             return (_BSAI_StrataHTTPBackend(n_ctx=int(context_length), quant_label=quant),)
 
         if model_file is None or str(model_file).startswith("(place models"):
-            raise RuntimeError("未找到可用模型文件。请把模型放到 ComfyUI/models/LLM/ 后重启。")
+            raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
 
         if model_family in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
-            if str(mmproj) in ("None", "无"):
+            if str(mmproj) in ("None",):
                 raise RuntimeError(
                     f"{model_family} is a multimodal model and requires an mmproj file.\n" +
                     "Please select the matching mmproj file in the 'mmproj' option."
@@ -999,7 +999,7 @@ class BSAI_QwenPromptInference:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "qwen模型": ("BSAI_QWEN_MODEL",),
+                "qwen_model": ("BSAI_QWEN_MODEL",),
                 "text": ("STRING", {"default": "", "multiline": True, "tooltip": "Input text content for prompt reverse-engineering"}),
                 "system_prompt": ("STRING", {"default": "Analyze the input and generate a detailed description.", "multiline": True}),
                 "max_tokens": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
@@ -1023,7 +1023,7 @@ class BSAI_QwenPromptInference:
         llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
-            raise TypeError(f"无效的模型输入：期望 Llama 模型对象，但收到 {type(llm).__name__} 类型。请检查工作流连接，确保 'qwen模型' 输入连接到正确的模型加载器输出。")
+            raise TypeError(f"Invalid model input: expected a Llama model object but got {type(llm).__name__}. Please check the workflow wiring and connect the 'qwen_model' input to the correct model loader output.")
 
         messages = []
         system_text = (system_prompt or "").strip()
@@ -1032,19 +1032,19 @@ class BSAI_QwenPromptInference:
 
         prompt_text = (text or "").strip()
         if not prompt_text:
-            raise ValueError("输入文本不能为空。")
+            raise ValueError("Input text must not be empty.")
 
         messages.append({"role": "user", "content": prompt_text})
 
         try:
             max_tokens_val = int(max_tokens)
         except (TypeError, ValueError):
-            raise TypeError(f"最大生成token 必须是整数类型，但收到 {type(最大生成token).__name__} 类型。请检查工作流连接。")
-        
+            raise TypeError(f"max_tokens must be an integer, but got {type(max_tokens).__name__}. Please check the workflow wiring.")
+
         try:
             top_k_val = int(top_k)
         except (TypeError, ValueError):
-            raise TypeError(f"top_k 必须是整数类型，但收到 {type(top_k).__name__} 类型。请检查工作流连接。")
+            raise TypeError(f"top_k must be an integer, but got {type(top_k).__name__}. Please check the workflow wiring.")
 
         params = {
             "max_tokens": max_tokens_val,
@@ -1064,14 +1064,15 @@ class BSAI_QwenPromptInference:
             out = _bsai_call_chat_completion(llm, messages=messages, params=params)
         except RuntimeError as e:
             if "Context Shift is explicitly disabled" in str(e):
-                current_n_ctx = getattr(llm, "n_ctx", "未知")
+                current_n_ctx = getattr(llm, "n_ctx", "unknown")
                 raise RuntimeError(
-                    "Context Shift 被 C++ 后端禁用（M-RoPE 模型不支持上下文滑动窗口）。\n"
-                    f"当前 n_ctx = {current_n_ctx}，无法容纳完整对话。\n"
-                    "请在 BSAI_QwenModelLoader 节点中增大「上下文长度」：\n"
-                    "  - 纯文本建议 16384\n"
-                    "  - 含图片/视频建议 32768 或更高\n"
-                    f"原始错误：{e}"
+                    "Context Shift is explicitly disabled by the C++ backend "
+                    "(M-RoPE models do not support context sliding window).\n"
+                    f"Current n_ctx = {current_n_ctx}, which cannot hold the full conversation.\n"
+                    "Please increase 'context_length' in the BSAI_QwenModelLoader node:\n"
+                    "  - text-only: 16384 recommended\n"
+                    "  - with images/video: 32768 or higher recommended\n"
+                    f"Original error: {e}"
                 ) from e
             raise
 
@@ -1080,7 +1081,7 @@ class BSAI_QwenPromptInference:
         except Exception:
             text = str(out)
 
-        # Strata HTTP 可能返回 None，兜底为空字符串
+        # Strata HTTP may return None; fall back to an empty string
         if text is None:
             text = ""
 
@@ -1170,16 +1171,16 @@ class BSAI_QwenMultimodalInference:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "qwen模型": ("BSAI_QWEN_MODEL",),
+                "qwen_model": ("BSAI_QWEN_MODEL",),
                 "text": ("STRING", {"default": "", "multiline": True, "tooltip": "Input text content for prompt reverse-engineering"}),
                 "system_prompt": ("STRING", {"default": "Analyze the input and generate a detailed description.", "multiline": True}),
-                "最大生成token": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
-                "温度": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "max_tokens": ("INT", {"default": 8192, "min": 20, "max": 65536, "step": 1}),
+                "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "top_k": ("INT", {"default": 20, "min": 0, "max": 200, "step": 1}),
-                "重复惩罚": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),
-                "频率惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
-                "存在惩罚": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "repeat_penalty": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),
+                "frequency_penalty": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
+                "presence_penalty": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
                 "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
@@ -1197,22 +1198,22 @@ class BSAI_QwenMultimodalInference:
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("输出文本",)
+    RETURN_NAMES = ("text",)
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
     def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
-        llm = qwen模型
+        llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
-            raise TypeError(f"无效的模型输入：期望 Llama 模型对象，但收到 {type(llm).__name__} 类型。请检查工作流连接，确保 'qwen模型' 输入连接到正确的模型加载器输出。")
+            raise TypeError(f"Invalid model input: expected a Llama model object but got {type(llm).__name__}. Please check the workflow wiring and connect the 'qwen_model' input to the correct model loader output.")
 
         temp_dir = _bsai_get_temp_dir()
         _bsai_cleanup_old_temp_files(temp_dir)
 
         content_items = []
 
-        # 处理图像输入
+        # Process image inputs
         for idx, img_tensor in enumerate([image_1, image_2, image_3, image_4, image_5], 1):
             if img_tensor is not None:
                 temp_path = temp_dir / f"img_{int(time.time()*1000)}_{idx}.jpg"
@@ -1220,7 +1221,7 @@ class BSAI_QwenMultimodalInference:
                 if saved:
                     content_items.append({"type": "image_url", "image_url": {"url": Path(saved).as_uri()}})
 
-        # 处理视频输入
+        # Process video inputs
         for idx, video_input in enumerate([video_1, video_2, video_3], 1):
             video_path = _bsai_get_video_path(video_input)
             if video_path:
@@ -1231,10 +1232,10 @@ class BSAI_QwenMultimodalInference:
                     img.save(temp_path, quality=95)
                     content_items.append({"type": "image_url", "image_url": {"url": Path(str(temp_path)).as_uri()}})
 
-        # 文本提示
+        # Text prompt
         prompt_text = (text or "").strip()
         if not prompt_text and not content_items:
-            raise ValueError("输入文本和所有图像/视频不能同时为空。")
+            raise ValueError("Input text and all image/video inputs cannot be empty at the same time.")
         if prompt_text:
             content_items.append({"type": "text", "text": prompt_text})
 
@@ -1266,30 +1267,30 @@ class BSAI_QwenMultimodalInference:
             content_items = converted
 
         messages = []
-        system_text = (系统提示词 or "").strip()
+        system_text = (system_prompt or "").strip()
         if system_text:
             messages.append({"role": "system", "content": system_text})
 
         messages.append({"role": "user", "content": content_items})
 
         try:
-            max_tokens_val = int(最大生成token)
+            max_tokens_val = int(max_tokens)
         except (TypeError, ValueError):
-            raise TypeError(f"最大生成token 必须是整数类型，但收到 {type(最大生成token).__name__} 类型。请检查工作流连接。")
+            raise TypeError(f"max_tokens must be an integer, but got {type(max_tokens).__name__}. Please check the workflow wiring.")
 
         try:
             top_k_val = int(top_k)
         except (TypeError, ValueError):
-            raise TypeError(f"top_k 必须是整数类型，但收到 {type(top_k).__name__} 类型。请检查工作流连接。")
+            raise TypeError(f"top_k must be an integer, but got {type(top_k).__name__}. Please check the workflow wiring.")
 
         params = {
             "max_tokens": max_tokens_val,
-            "temperature": float(温度),
+            "temperature": float(temperature),
             "top_p": float(top_p),
             "top_k": top_k_val,
-            "repeat_penalty": float(重复惩罚),
-            "frequency_penalty": float(频率惩罚),
-            "presence_penalty": float(存在惩罚),
+            "repeat_penalty": float(repeat_penalty),
+            "frequency_penalty": float(frequency_penalty),
+            "presence_penalty": float(presence_penalty),
             "seed": _bsai_normalize_seed(seed),
             "stream": False,
             "stop": ["</s>"],
@@ -1300,27 +1301,28 @@ class BSAI_QwenMultimodalInference:
             out = _bsai_call_chat_completion(llm, messages=messages, params=params)
         except RuntimeError as e:
             if "Context Shift is explicitly disabled" in str(e):
-                current_n_ctx = getattr(llm, "n_ctx", "未知")
+                current_n_ctx = getattr(llm, "n_ctx", "unknown")
                 raise RuntimeError(
-                    "Context Shift 被 C++ 后端禁用（M-RoPE 模型不支持上下文滑动窗口）。\n"
-                    f"当前 n_ctx = {current_n_ctx}，无法容纳完整对话。\n"
-                    "请在 BSAI_QwenModelLoader 节点中增大「上下文长度」：\n"
-                    "  - 纯文本建议 16384\n"
-                    "  - 含图片/视频建议 32768 或更高\n"
-                    f"原始错误：{e}"
+                    "Context Shift is explicitly disabled by the C++ backend "
+                    "(M-RoPE models do not support context sliding window).\n"
+                    f"Current n_ctx = {current_n_ctx}, which cannot hold the full conversation.\n"
+                    "Please increase 'context_length' in the BSAI_QwenModelLoader node:\n"
+                    "  - text-only: 16384 recommended\n"
+                    "  - with images/video: 32768 or higher recommended\n"
+                    f"Original error: {e}"
                 ) from e
             raise
         except ValueError as e:
             if "Media evaluation failed" in str(e):
                 raise RuntimeError(
-                    "多模态图像编码失败（Media evaluation failed）。\n"
-                    "可能的原因和解决方案：\n"
-                    "1. 输入图像分辨率过大 — 已自动限制为最长边 1536 像素，若仍失败请手动缩小原图。\n"
-                    "2. mmproj 视觉投影模型与主模型不匹配 — 请确保加载了对应版本的 mmproj 文件。\n"
-                    "   例如：Qwen3.8-VL 主模型必须搭配 Qwen3.8-VL 的 mmproj。\n"
-                    "3. 显存不足导致 CLIP 编码失败 — 请尝试减少输入图像/视频帧数，或重启 ComfyUI。\n"
-                    "4. 图像文件损坏或格式异常 — 请检查输入图像能否正常打开。\n"
-                    f"原始错误：{e}"
+                    "Multimodal image encoding failed (Media evaluation failed).\n"
+                    "Possible causes and solutions:\n"
+                    "1. Input image resolution is too large - it is automatically limited to a max edge of 1536 px; if it still fails, downscale the source image manually.\n"
+                    "2. The mmproj vision projector does not match the main model - make sure the matching mmproj is loaded.\n"
+                    "   For example: the Qwen3.8-VL main model must pair with the Qwen3.8-VL mmproj.\n"
+                    "3. Insufficient VRAM caused CLIP encoding to fail - try reducing the number of input images/video frames or restart ComfyUI.\n"
+                    "4. The image file is corrupted or in an unusual format - check that the input image opens normally.\n"
+                    f"Original error: {e}"
                 ) from e
             raise
 
@@ -1329,11 +1331,11 @@ class BSAI_QwenMultimodalInference:
         except Exception:
             text = str(out)
 
-        # Strata HTTP 可能返回 None，兜底为空字符串
+        # Strata HTTP may return None; fall back to an empty string
         if text is None:
             text = ""
 
-        if 推理后自动卸载:
+        if auto_unload:
             _BSAI_QwenStorage.unload()
 
         return (text.lstrip().removeprefix(": ").strip(),)

@@ -30,10 +30,40 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 def _download_image_from_url(url: str):
-    """从 HTTP URL 下载图片并返回 ComfyUI IMAGE tensor [B, H, W, C] (0~1 float32)。"""
+    """Download an image from an http(s) URL and return a ComfyUI IMAGE tensor [B, H, W, C] (0~1 float32).
+
+    SSRF guard: only http/https schemes are allowed; file:// and other schemes are
+    rejected. The host must be a public/hostname value (loopback/private addresses
+    are blocked to prevent internal network reachability from a workflow-supplied URL).
+    """
     try:
         import urllib.request
+        from urllib.parse import urlparse
         from PIL import Image
+
+        if not isinstance(url, str) or not url:
+            logger.warning(f"[BSAI Krea2] Empty or invalid style reference URL")
+            return None
+
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ("http", "https"):
+            logger.warning(f"[BSAI Krea2] Blocked non-http(s) scheme in style reference URL: {scheme!r} ({url})")
+            return None
+
+        host = (parsed.hostname or "").lower()
+        if not host:
+            logger.warning(f"[BSAI Krea2] Style reference URL has no host: {url}")
+            return None
+
+        # Block loopback / private / link-local hosts to mitigate SSRF.
+        if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            logger.warning(f"[BSAI Krea2] Blocked loopback host in style reference URL: {host}")
+            return None
+        if host.startswith(("10.", "192.168.", "169.254.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")):
+            logger.warning(f"[BSAI Krea2] Blocked private/link-local host in style reference URL: {host}")
+            return None
+
         req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-BSAI/1.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
@@ -44,7 +74,7 @@ def _download_image_from_url(url: str):
         ).float()
         return arr.unsqueeze(0)  # [1, H, W, 3]
     except Exception as e:
-        logger.warning(f"[BSAI Krea2] 无法下载风格参考图 URL: {url}，错误: {e}")
+        logger.warning(f"[BSAI Krea2] Failed to download style reference image URL: {url}, error: {e}")
         return None
 
 
@@ -298,24 +328,22 @@ class BSAI_Krea2Image:
         if style_reference is not None:
             style_conds.extend(list(style_reference))
 
-        # 2) 处理官方 Krea style_reference 输入 (KREA_STYLE_REF)
+        # 2) Process the official Krea style_reference input (KREA_STYLE_REF)
         if krea_style_reference is not None:
             if _is_krea_style_ref(krea_style_reference):
-                logger.info(f"[BSAI Krea2] 检测到官方 Krea Style Reference ({len(krea_style_reference)} 张)，正在下载并本地编码...")
+                logger.info(f"[BSAI Krea2] Detected official Krea Style Reference ({len(krea_style_reference)} images); downloading and encoding locally...")
                 krea_cond = _krea_style_ref_to_conditioning(clip, krea_style_reference)
                 style_conds.extend(krea_cond)
             else:
-                logger.warning("[BSAI Krea2] krea_style_reference 格式未知，已忽略。")
+                logger.warning("[BSAI Krea2] krea_style_reference has an unknown format; ignoring.")
 
-        # 3) 处理内嵌风格图
-        _LEVEL_MAP = {"轻微": "subtle", "平衡": "balanced", "强烈": "strong"}
+        # 3) Process embedded style images
         for ref_img, ref_strength, ref_level in [
             (style_image_1, style_strength_1, style_level_1),
             (style_image_2, style_strength_2, style_level_2),
         ]:
             if ref_img is not None:
                 resized = _resize_image_for_vision(ref_img, 384)
-                ref_level = _LEVEL_MAP.get(ref_level, ref_level)
                 instruction = STYLE_INSTRUCTIONS.get(ref_level, STYLE_INSTRUCTIONS["balanced"])
                 text = f"{instruction}\n\n[Style Reference Image]"
                 tokens = clip.tokenize(text, images=[resized])

@@ -90,7 +90,7 @@ class BSAI_PIPMultiLayerWithAudio:
                 frame_count = vid.shape[0]
                 break
         if frame_count == 0:
-            raise Exception("至少需要一路视频输入")
+            raise Exception("At least one video input layer is required")
 
         composite_frames = []
 

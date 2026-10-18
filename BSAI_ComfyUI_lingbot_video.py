@@ -27,20 +27,20 @@ try:
         kind="video_infer",
         hardware=["cuda"],
     )
-except Exception as _bsai_e:  # 注册失败不得拖垮插件
-    print(f"[BSAI SDK] BSAI-LingBot-Video 注册失败(忽略): {_bsai_e}")
-# ==== BSAI SDK 块结束 ====
+except Exception as _bsai_e:  # Registration failure must not break the plugin
+    print(f"[BSAI SDK] BSAI-LingBot-Video registration failed (ignored): {_bsai_e}")
+# ==== BSAI SDK block end ====
 
 
 def _bsai_video_lease():
-    """BSAI 协同：video_infer 租约（失败不阻断推理，仅叠加租约管理）。"""
+    """BSAI collaboration: video_infer lease (failure does not block inference)."""
     try:
         _a = BSAIOrch.allocate("video_infer", requester="8191")
         if not _a.ok:
-            print(f"[BSAI-LingBot-Video] SDK 未取得 video_infer 租约({_a.reason})，仍按原逻辑推理")
+            print(f"[BSAI-LingBot-Video] SDK did not obtain video_infer lease ({_a.reason}); continuing with normal inference")
         return _a
     except Exception as _e:
-        print(f"[BSAI-LingBot-Video] SDK allocate 异常(忽略): {_e}")
+        print(f"[BSAI-LingBot-Video] SDK allocate exception (ignored): {_e}")
         return None
 
 
@@ -59,7 +59,7 @@ if _PLUGIN_DIR not in sys.path:
     sys.path.insert(0, _PLUGIN_DIR)
 
 # 本地模型存放根目录（相对路径）
-_MODEL_ROOT = os.path.join(_PLUGIN_DIR, "..", "..", "models", "lingbot-vision")
+_MODEL_ROOT = os.path.normpath(os.path.join(_PLUGIN_DIR, "..", "..", "models", "lingbot-vision"))
 _DENSE_MODEL_LOCAL = os.path.normpath(os.path.join(_MODEL_ROOT, "dense-1.3b"))
 _DENSE_HF_REPO = "robbyant/lingbot-video-dense-1.3b"
 
@@ -67,6 +67,48 @@ _DENSE_HF_REPO = "robbyant/lingbot-video-dense-1.3b"
 _pipeline_cache = {}
 _device = None
 _dtype = None
+
+
+def _confine_model_path(user_path: str) -> str:
+    """Resolve a user-supplied model_path and confine it to the allowed model root.
+
+    - Empty/whitespace falls back to the default dense-1.3b directory.
+    - Absolute paths and any ".." traversal that escapes _MODEL_ROOT are rejected.
+    - Relative paths are resolved against _MODEL_ROOT and verified via realpath+commonpath.
+    """
+    base = os.path.realpath(_MODEL_ROOT)
+    if user_path is None or not str(user_path).strip():
+        return _DENSE_MODEL_LOCAL
+    raw = str(user_path).strip()
+    # Reject explicit traversal and absolute paths outright.
+    if os.path.isabs(raw) or ".." in raw.replace("\\", "/").split("/"):
+        raise RuntimeError(
+            f"Invalid model_path: absolute paths and '..' traversal are not allowed "
+            f"(received: {raw!r}). Model path must be relative under {base}."
+        )
+    candidate = os.path.realpath(os.path.join(base, raw))
+    # commonpath raises ValueError on different drives; treat that as escape.
+    try:
+        if os.path.commonpath([base, candidate]) != base:
+            raise ValueError
+    except ValueError:
+        raise RuntimeError(
+            f"Invalid model_path: resolved path escapes the allowed model directory "
+            f"(received: {raw!r})."
+        )
+    return candidate
+
+
+def _sanitize_filename_prefix(prefix: str) -> str:
+    """Return a safe bare filename prefix (no directories, no traversal)."""
+    if prefix is None:
+        return "LBV"
+    name = os.path.basename(str(prefix).replace("\\", "/").strip())
+    if not name or name in (".", ".."):
+        return "LBV"
+    # Strip any residual traversal segments.
+    name = name.replace("..", "")
+    return name or "LBV"
 
 
 def _get_device():
@@ -84,20 +126,20 @@ def _get_dtype():
 
 
 def _check_dependencies():
-    """检查依赖版本是否满足 lingbot-video 最低要求"""
+    """Check whether dependency versions meet the minimum lingbot-video requirements."""
     missing = []
     try:
         import transformers
         from packaging.version import Version
         if Version(transformers.__version__) < Version("5.0.0"):
-            missing.append(f"transformers>={transformers.__version__} (需要 >=5.0.0，当前 {transformers.__version__})")
+            missing.append(f"transformers>={transformers.__version__} (requires >=5.0.0, current {transformers.__version__})")
     except ImportError:
         missing.append("transformers")
     try:
         import diffusers
         from packaging.version import Version
         if Version(diffusers.__version__) < Version("0.37.0"):
-            missing.append(f"diffusers (需要 >=0.37.0，当前 {diffusers.__version__})")
+            missing.append(f"diffusers (requires >=0.37.0, current {diffusers.__version__})")
     except ImportError:
         missing.append("diffusers")
     try:
@@ -116,17 +158,17 @@ def _check_dependencies():
 
 
 def _download_model(model_path: str, hf_repo: str):
-    """从 HuggingFace 下载模型到本地（自动尝试镜像站）"""
+    """Download the model from HuggingFace locally (auto-try mirror endpoints)."""
     from huggingface_hub import snapshot_download
     endpoints = [
-        None,  # 默认官方
-        "https://hf-mirror.com",  # 国内镜像
+        None,  # Default official
+        "https://hf-mirror.com",  # Mirror
     ]
     for endpoint in endpoints:
         try:
-            label = endpoint or "HuggingFace官方"
-            print(f"[BSAI LingBot-Video] 正在从 {label} 下载模型: {hf_repo}")
-            print(f"[BSAI LingBot-Video] 下载到: {model_path}")
+            label = endpoint or "HuggingFace"
+            print(f"[BSAI LingBot-Video] Downloading {hf_repo} from {label}")
+            print(f"[BSAI LingBot-Video] Downloading to: {model_path}")
             os.makedirs(model_path, exist_ok=True)
             kwargs = dict(
                 repo_id=hf_repo,
@@ -136,78 +178,78 @@ def _download_model(model_path: str, hf_repo: str):
             if endpoint:
                 kwargs["endpoint"] = endpoint
             snapshot_download(**kwargs)
-            print(f"[BSAI LingBot-Video] 模型下载完成: {model_path}")
+            print(f"[BSAI LingBot-Video] Model download complete: {model_path}")
             return True
         except Exception as e:
-            print(f"[BSAI LingBot-Video] {label} 下载失败: {e}")
+            print(f"[BSAI LingBot-Video] {label} download failed: {e}")
             if endpoint is None:
-                continue  # 尝试镜像
+                continue  # Try the mirror
             return False
     return False
 
 
 def _load_pipeline(model_path: str, hf_repo: str, dtype_str: str = "bf16", vae_dtype_str: str = "fp32"):
-    """加载 LingBot-Video pipeline"""
+    """Load the LingBot-Video pipeline."""
     cache_key = (model_path, dtype_str, vae_dtype_str)
     if cache_key in _pipeline_cache:
         return _pipeline_cache[cache_key]
 
-    # 检查本地模型
+    # Check for a local model
     if not os.path.isfile(os.path.join(model_path, "model_index.json")):
-        print(f"[BSAI LingBot-Video] 本地模型未找到，正在从 HuggingFace 下载...")
+        print(f"[BSAI LingBot-Video] Local model not found, downloading from HuggingFace...")
         if not _download_model(model_path, hf_repo):
             raise RuntimeError(
-                f"无法加载 LingBot-Video 模型。"
-                f"\n请手动下载模型到: {model_path}"
-                f"\n或确保网络可以访问: https://huggingface.co/{hf_repo}"
+                f"Unable to load the LingBot-Video model."
+                f"\nPlease manually download the model to: {model_path}"
+                f"\nor ensure network access to: https://huggingface.co/{hf_repo}"
             )
 
-    # 解析 dtype
+    # Resolve dtype
     dtype_map = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
     transformer_dtype = dtype_map.get(dtype_str, torch.bfloat16)
     vae_dtype = dtype_map.get(vae_dtype_str, torch.float32)
 
     device = _get_device()
 
-    # 导入 lingbot_video 自定义组件
+    # Import lingbot_video custom components
     try:
         from lingbot_video.pipeline_lingbot_video import LingBotVideoPipeline
         from lingbot_video.transformer_lingbot_video import LingBotVideoTransformer3DModel
         from lingbot_video.scheduling_flow_unipc import FlowUniPCMultistepScheduler
     except ImportError as e:
-        raise RuntimeError(f"无法导入 lingbot_video 模块: {e}")
+        raise RuntimeError(f"Unable to import the lingbot_video module: {e}")
 
-    # 手动加载各组件
+    # Manually load each component
     from diffusers import AutoencoderKLWan
     from transformers import Qwen3VLForConditionalGeneration, Qwen3VLProcessor
 
-    print(f"[BSAI LingBot-Video] 正在加载模型 ({transformer_dtype})...")
+    print(f"[BSAI LingBot-Video] Loading model ({transformer_dtype})...")
 
-    # 加载 scheduler
+    # Load scheduler
     scheduler = FlowUniPCMultistepScheduler.from_pretrained(os.path.join(model_path, "scheduler"))
-    print("[BSAI LingBot-Video] Scheduler 已加载")
+    print("[BSAI LingBot-Video] Scheduler loaded")
 
-    # 加载 text_encoder + processor
+    # Load text_encoder + processor
     text_encoder = Qwen3VLForConditionalGeneration.from_pretrained(
         os.path.join(model_path, "text_encoder"),
         torch_dtype=transformer_dtype,
     )
     processor = Qwen3VLProcessor.from_pretrained(os.path.join(model_path, "processor"))
-    print("[BSAI LingBot-Video] TextEncoder + Processor 已加载")
+    print("[BSAI LingBot-Video] TextEncoder + Processor loaded")
 
-    # 加载 transformer
+    # Load transformer
     transformer = LingBotVideoTransformer3DModel.from_pretrained(
         os.path.join(model_path, "transformer"),
         torch_dtype=transformer_dtype,
     )
-    print("[BSAI LingBot-Video] Transformer 已加载")
+    print("[BSAI LingBot-Video] Transformer loaded")
 
-    # 加载 VAE
+    # Load VAE
     vae = AutoencoderKLWan.from_pretrained(
         os.path.join(model_path, "vae"),
         torch_dtype=vae_dtype,
     )
-    print("[BSAI LingBot-Video] VAE 已加载")
+    print("[BSAI LingBot-Video] VAE loaded")
 
     # 构建 pipeline
     pipe = LingBotVideoPipeline(
@@ -243,15 +285,16 @@ def _load_pipeline(model_path: str, hf_repo: str, dtype_str: str = "bf16", vae_d
     pipe.vae.decode = _patched_vae_decode
 
     _pipeline_cache[cache_key] = pipe
-    print(f"[BSAI LingBot-Video] 模型加载完成 (设备: {device})")
+    print(f"[BSAI LingBot-Video] Model load complete (device: {device})")
     return pipe
 
 
 def _save_video(frames: list, fps: int, output_dir: str, filename_prefix: str) -> str:
-    """保存视频帧到文件"""
+    """Save video frames to a file."""
     import folder_paths
     output_base = folder_paths.get_output_directory()
     os.makedirs(output_base, exist_ok=True)
+    filename_prefix = _sanitize_filename_prefix(filename_prefix)
 
     try:
         import imageio
@@ -260,16 +303,17 @@ def _save_video(frames: list, fps: int, output_dir: str, filename_prefix: str) -
         if frames:
             imageio.mimwrite(filepath, frames, fps=fps, codec="libx264", quality=8)
         else:
-            # 如果是单张图
+            # Single image fallback
             return _save_image(frames, output_base, filename_prefix)
         return filepath
     except Exception:
-        # 回退到逐帧保存为图片
+        # Fall back to per-frame image saving
         return _save_image(frames, output_base, filename_prefix)
 
 
 def _save_image(frames, output_dir: str, filename_prefix: str) -> str:
-    """保存为图片"""
+    """Save as an image."""
+    filename_prefix = _sanitize_filename_prefix(filename_prefix)
     try:
         from PIL import Image
         if frames and len(frames) > 0:
@@ -280,7 +324,7 @@ def _save_image(frames, output_dir: str, filename_prefix: str) -> str:
                 frames[0].save(filepath)
             return filepath
     except Exception as e:
-        print(f"[BSAI LingBot-Video] 保存图片失败: {e}")
+        print(f"[BSAI LingBot-Video] Failed to save image: {e}")
     return ""
 
 
@@ -317,7 +361,7 @@ def _frames_to_comfy_image(frames):
 # Node: BSAI LingBot-Video Loader (模型加载器)
 # ============================================================
 class BSAI_LingBot_Video_Loader:
-    """加载 LingBot-Video Dense 1.3B 模型"""
+    """Load the LingBot-Video Dense 1.3B model."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -341,11 +385,11 @@ class BSAI_LingBot_Video_Loader:
         deps = _check_dependencies()
         if deps:
             raise RuntimeError(
-                f"LingBot-Video 依赖不满足:\n  - " + "\n  - ".join(deps) +
-                "\n建议升级 transformers>=5.0.0, diffusers>=0.37.0"
+                f"LingBot-Video dependencies not satisfied:\n  - " + "\n  - ".join(deps) +
+                "\nRecommended: upgrade transformers>=5.0.0, diffusers>=0.37.0"
             )
 
-        path = model_path.strip() if model_path.strip() else _DENSE_MODEL_LOCAL
+        path = _confine_model_path(model_path)
         pipe = _load_pipeline(path, _DENSE_HF_REPO, transformer_dtype, vae_dtype)
         return (pipe,)
 
@@ -354,7 +398,7 @@ class BSAI_LingBot_Video_Loader:
 # Node: BSAI LingBot-Video Text-to-Video (T2V)
 # ============================================================
 class BSAI_LingBot_Video_T2V:
-    """LingBot-Video 文生视频"""
+    """LingBot-Video Text-to-Video."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -434,21 +478,21 @@ class BSAI_LingBot_Video_T2V:
                 if output is not None:
                     frames = [output]
                 else:
-                    raise RuntimeError("无法从 pipeline 输出中提取视频帧")
+                    raise RuntimeError("Unable to extract video frames from the pipeline output")
 
             comfy_image = _frames_to_comfy_image(frames)
             filepath = _save_video(frames, fps, None, filename_prefix)
             return (comfy_image, filepath,)
 
         except Exception as e:
-            raise RuntimeError(f"LingBot-Video T2V 推理失败: {e}")
+            raise RuntimeError(f"LingBot-Video T2V inference failed: {e}")
 
 
 # ============================================================
 # Node: BSAI LingBot-Video Text-to-Image (T2I)
 # ============================================================
 class BSAI_LingBot_Video_T2I:
-    """LingBot-Video 文生图"""
+    """LingBot-Video Text-to-Image."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -517,7 +561,7 @@ class BSAI_LingBot_Video_T2I:
             elif hasattr(result, "frames") and result.frames is not None:
                 images = result.frames[0] if isinstance(result.frames, list) else result.frames
             else:
-                raise RuntimeError("无法从 pipeline 输出中提取图像")
+                raise RuntimeError("Unable to extract image from the pipeline output")
 
             # 转换为 ComfyUI IMAGE 格式: [B, H, W, C] numpy array
             if isinstance(images, list):
@@ -541,14 +585,14 @@ class BSAI_LingBot_Video_T2I:
             return (image, filepath,)
 
         except Exception as e:
-            raise RuntimeError(f"LingBot-Video T2I 推理失败: {e}")
+            raise RuntimeError(f"LingBot-Video T2I inference failed: {e}")
 
 
 # ============================================================
 # Node: BSAI LingBot-Video Image-to-Video (TI2V)
 # ============================================================
 class BSAI_LingBot_Video_TI2V:
-    """LingBot-Video 图文生视频"""
+    """LingBot-Video Image+Text-to-Video."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -610,7 +654,7 @@ class BSAI_LingBot_Video_TI2V:
             img_np = image[0].astype(np.uint8)
             pil_image = PILImage.fromarray(img_np).convert("RGB")
         except Exception as e:
-            raise RuntimeError(f"输入图像转换失败: {e}")
+            raise RuntimeError(f"Input image conversion failed: {e}")
 
         # 获取图像尺寸
         w, h = pil_image.size
@@ -643,21 +687,21 @@ class BSAI_LingBot_Video_TI2V:
                 if isinstance(frames, torch.Tensor):
                     frames = frames.permute(1, 2, 3, 0).cpu().numpy()
             else:
-                raise RuntimeError("无法从 pipeline 输出中提取视频帧")
+                raise RuntimeError("Unable to extract video frames from the pipeline output")
 
             comfy_image = _frames_to_comfy_image(frames)
             filepath = _save_video(frames, fps, None, filename_prefix)
             return (comfy_image, filepath,)
 
         except Exception as e:
-            raise RuntimeError(f"LingBot-Video TI2V 推理失败: {e}")
+            raise RuntimeError(f"LingBot-Video TI2V inference failed: {e}")
 
 
 # ============================================================
-# Node: BSAI LingBot-Video Unload (卸载模型释放显存)
+# Node: BSAI LingBot-Video Unload (release VRAM)
 # ============================================================
 class BSAI_LingBot_Video_Unload:
-    """卸载 LingBot-Video 模型释放显存"""
+    """Unload the LingBot-Video model and release VRAM."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -686,7 +730,7 @@ class BSAI_LingBot_Video_Unload:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-        print("[BSAI LingBot-Video] 模型已卸载，显存已释放")
+        print("[BSAI LingBot-Video] Model unloaded, VRAM released")
         return ()
 
 

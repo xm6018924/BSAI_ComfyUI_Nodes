@@ -156,13 +156,13 @@ class BSAI_MultiImageVideoReverse:
     DESCRIPTION = "BSAI multi-image/video reverse prompt node: uses a local Ollama model to analyze multiple images and video frames and generate a description"
 
     def _process_image_tensor(self, img_tensor):
-        """处理单个图像张量，转换为base64编码"""
+        """Process a single image tensor, convert to base64."""
         images_b64 = []
         try:
-            # 检查是否是torch张量
+            # Check whether this is a torch tensor
             if hasattr(img_tensor, 'cpu'):
-                print(f"[BSAI_MultiImageVideoReverse] 处理图像，形状: {img_tensor.shape}")
-                # 处理批量图像（4D张量：B, H, W, C）
+                print(f"[BSAI_MultiImageVideoReverse] Processing image, shape: {img_tensor.shape}")
+                # Batch images (4D tensor: B, H, W, C)
                 if len(img_tensor.shape) == 4:
                     for idx in range(img_tensor.shape[0]):
                         img_np = 255. * img_tensor[idx].cpu().numpy()
@@ -171,45 +171,45 @@ class BSAI_MultiImageVideoReverse:
                         img.save(buffered, format="PNG")
                         img_bytes = base64.b64encode(buffered.getvalue()).decode("utf-8")
                         images_b64.append(img_bytes)
-                        print(f"[BSAI_MultiImageVideoReverse] 成功处理批量图像 {idx+1}/{img_tensor.shape[0]}")
+                        print(f"[BSAI_MultiImageVideoReverse] Processed batch image {idx+1}/{img_tensor.shape[0]}")
                 elif len(img_tensor.shape) == 3:
-                    # 单张图像（3D张量：H, W, C）
+                    # Single image (3D tensor: H, W, C)
                     img_np = 255. * img_tensor.cpu().numpy()
                     img = Image.fromarray(np.clip(img_np, 0, 255).astype(np.uint8))
                     buffered = BytesIO()
                     img.save(buffered, format="PNG")
                     img_bytes = base64.b64encode(buffered.getvalue()).decode("utf-8")
                     images_b64.append(img_bytes)
-                    print(f"[BSAI_MultiImageVideoReverse] 成功处理单个图像")
+                    print(f"[BSAI_MultiImageVideoReverse] Processed single image")
                 else:
-                    print(f"[BSAI_MultiImageVideoReverse] WARNING: 图像张量维度不支持: {img_tensor.shape}")
+                    print(f"[BSAI_MultiImageVideoReverse] WARNING: unsupported image tensor dimensions: {img_tensor.shape}")
             else:
-                # 如果不是torch张量，尝试直接处理
-                print(f"[BSAI_MultiImageVideoReverse] WARNING: 图像不是torch张量，跳过处理")
+                # Not a torch tensor: try to process directly
+                print(f"[BSAI_MultiImageVideoReverse] WARNING: input is not a torch tensor, skipping")
         except Exception as e:
-            error_msg = f"处理图像时出错: {str(e)}"
+            error_msg = f"Error processing image: {str(e)}"
             print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
             import traceback
             traceback.print_exc()
-        
+
         return images_b64
 
     def _process_video_tensor(self, video_tensor, sample_interval=10, max_frames=5):
-        """处理视频张量，采样关键帧转换为base64编码"""
+        """Process a video tensor, sample key frames and convert to base64."""
         images_b64 = []
         try:
             if video_tensor is None:
                 return images_b64
-                
+
             if hasattr(video_tensor, 'cpu'):
-                print(f"[BSAI_MultiImageVideoReverse] 处理视频，形状: {video_tensor.shape}")
-                # 视频是4D张量：B, H, W, C（B是帧数）
+                print(f"[BSAI_MultiImageVideoReverse] Processing video, shape: {video_tensor.shape}")
+                # Video is a 4D tensor: B, H, W, C (B = number of frames)
                 if len(video_tensor.shape) == 4:
                     total_frames = video_tensor.shape[0]
-                    # 计算采样索引
+                    # Compute sampling indices
                     indices = list(range(0, total_frames, sample_interval))[:max_frames]
-                    print(f"[BSAI_MultiImageVideoReverse] 视频共 {total_frames} 帧，采样 {len(indices)} 帧: {indices}")
-                    
+                    print(f"[BSAI_MultiImageVideoReverse] Video has {total_frames} frames, sampling {len(indices)}: {indices}")
+
                     for idx in indices:
                         img_np = 255. * video_tensor[idx].cpu().numpy()
                         img = Image.fromarray(np.clip(img_np, 0, 255).astype(np.uint8))
@@ -217,17 +217,17 @@ class BSAI_MultiImageVideoReverse:
                         img.save(buffered, format="PNG")
                         img_bytes = base64.b64encode(buffered.getvalue()).decode("utf-8")
                         images_b64.append(img_bytes)
-                    print(f"[BSAI_MultiImageVideoReverse] 成功处理视频采样")
+                    print(f"[BSAI_MultiImageVideoReverse] Processed sampled video frames")
                 else:
-                    print(f"[BSAI_MultiImageVideoReverse] WARNING: 视频张量维度不支持: {video_tensor.shape}")
+                    print(f"[BSAI_MultiImageVideoReverse] WARNING: unsupported video tensor dimensions: {video_tensor.shape}")
             else:
-                print(f"[BSAI_MultiImageVideoReverse] WARNING: 视频不是torch张量，跳过处理")
+                print(f"[BSAI_MultiImageVideoReverse] WARNING: input is not a torch tensor, skipping")
         except Exception as e:
-            error_msg = f"处理视频时出错: {str(e)}"
+            error_msg = f"Error processing video: {str(e)}"
             print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
             import traceback
             traceback.print_exc()
-        
+
         return images_b64
 
     def multi_media_reverse(self, backend, strata_quant, system, prompt, model="qwen3.8:latest", url="http://127.0.0.1:11434", custom_model="",
@@ -248,12 +248,12 @@ class BSAI_MultiImageVideoReverse:
                 quant_label=strata_quant,
             )
 
-        # 确定使用的模型
+        # Determine the model to use
         if model == "custom" and custom_model:
             selected_model = custom_model
         else:
             selected_model = model
-        
+
         try:
             if not _is_allowed_host(url):
                 error_msg = "Ollama host must be localhost or a private LAN address (SSRF guard)"
@@ -261,45 +261,45 @@ class BSAI_MultiImageVideoReverse:
                 return error_msg, "", []
             client = Client(host=url)
         except Exception as e:
-            error_msg = f"创建Ollama客户端失败: {str(e)}"
+            error_msg = f"Failed to create Ollama client: {str(e)}"
             print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
             return error_msg, "", []
-        
-        # 收集所有图像
+
+        # Collect all images
         all_images_b64 = []
-        
-        # 处理图像输入
+
+        # Process image inputs
         images = [image1, image2, image3, image4, image5, image6, image7, image8, image9, image10]
         for i, img in enumerate(images, 1):
             if img is not None:
-                print(f"[BSAI_MultiImageVideoReverse] 处理图像 {i}")
+                print(f"[BSAI_MultiImageVideoReverse] Processing image {i}")
                 all_images_b64.extend(self._process_image_tensor(img))
-        
-        # 处理视频输入
+
+        # Process video inputs
         videos = [video1, video2, video3, video4, video5]
         for i, vid in enumerate(videos, 1):
             if vid is not None:
-                print(f"[BSAI_MultiImageVideoReverse] 处理视频 {i}")
+                print(f"[BSAI_MultiImageVideoReverse] Processing video {i}")
                 all_images_b64.extend(self._process_video_tensor(vid, video_sample_interval, max_frames_per_video))
-        
-        print(f"[BSAI_MultiImageVideoReverse] 媒体处理完成，共 {len(all_images_b64)} 个图像/帧")
-        
-        # 检查是否有图像
+
+        print(f"[BSAI_MultiImageVideoReverse] Media processing done, {len(all_images_b64)} images/frames total")
+
+        # Check whether we have any images
         if not all_images_b64:
-            error_msg = "没有有效的图像或视频输入，请至少连接一张图像或一个视频"
+            error_msg = "No valid image or video input; please connect at least one image or one video"
             print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
             return error_msg, "", []
-        
-        # 构建请求选项
+
+        # Build request options
         options = {
             "temperature": temperature,
             "top_p": top_p,
             "num_predict": max_tokens
         }
-        
-        print(f"[BSAI_MultiImageVideoReverse] 发送请求到Ollama，模型: {selected_model}")
-        
-        # 发送请求到Ollama
+
+        print(f"[BSAI_MultiImageVideoReverse] Sending request to Ollama, model: {selected_model}")
+
+        # Send request to Ollama
         try:
             response = client.generate(
                 model=selected_model,
@@ -309,21 +309,21 @@ class BSAI_MultiImageVideoReverse:
                 options=options,
                 keep_alive="5m"
             )
-            
-            print(f"[BSAI_MultiImageVideoReverse] 收到Ollama响应")
-            
-            # 提取响应
+
+            print(f"[BSAI_MultiImageVideoReverse] Received Ollama response")
+
+            # Extract the response
             ollama_response_text = response.get('response', '')
             ollama_response_thinking = response.get('thinking', '') if 'thinking' in response else ""
-            
-            print(f"[BSAI_MultiImageVideoReverse] 响应长度: {len(ollama_response_text)}")
-            
+
+            print(f"[BSAI_MultiImageVideoReverse] Response length: {len(ollama_response_text)}")
+
             prompt_list = [item.strip() for item in ollama_response_text.split('\n') if item.strip()]
-            
+
             return ollama_response_text, ollama_response_thinking, prompt_list
-            
+
         except Exception as e:
-            error_msg = f"Ollama API调用失败: {str(e)}"
+            error_msg = f"Ollama API call failed: {str(e)}"
             print(f"[BSAI_MultiImageVideoReverse] ERROR: {error_msg}")
             import traceback
             traceback.print_exc()
@@ -348,9 +348,9 @@ class BSAI_MultiImageVideoReverse:
                 _m = _ilu.util.module_from_spec(_spec)
                 _spec.loader.exec_module(_m)
                 ok, msg = _m.StrataManager.ensure_running(quant_label=quant_label)
-                print(f"[BSAI_MultiImageReverse] Strata 自动启动: {ok} ({msg})")
+                print(f"[BSAI_MultiImageReverse] Strata auto-start: {ok} ({msg})")
         except Exception as _e:
-            print(f"[BSAI_MultiImageReverse] Strata 自动启动跳过: {_e}")
+            print(f"[BSAI_MultiImageReverse] Strata auto-start skipped: {_e}")
 
         # collect all images (already base64 PNG)
         images_b64 = []
@@ -362,7 +362,7 @@ class BSAI_MultiImageVideoReverse:
                 images_b64.extend(self._process_video_tensor(vid, video_sample_interval, max_frames_per_video))
 
         if not images_b64:
-            return "没有有效的图像或视频输入", "", []
+            return "No valid image or video input", "", []
 
         # build OpenAI multimodal content
         content = [{"type": "text", "text": prompt}]
@@ -400,7 +400,7 @@ class BSAI_MultiImageVideoReverse:
             prompt_list = [l.strip() for l in text.split("\n") if l.strip()]
             return text, thinking, prompt_list
         except Exception as e:
-            err = f"[BSAI Strata 反推失败] {type(e).__name__}: {e} (is Strata running at 127.0.0.1:8080?)"
+            err = f"[BSAI Strata reverse failed] {type(e).__name__}: {e} (is Strata running at 127.0.0.1:8080?)"
             print(err)
             return err, "", []
 

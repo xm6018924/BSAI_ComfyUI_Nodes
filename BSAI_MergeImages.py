@@ -89,13 +89,13 @@ class BSAI_MergeImages:
 
     @staticmethod
     def _get_grid_size(layout, custom_rows, custom_cols):
-        if layout in ("2x2 Grid", "2x2 (4宫格)"):
+        if layout == "2x2 Grid":
             return 2, 2
-        elif layout in ("2x3 Grid", "2x3 (6宫格)"):
+        elif layout == "2x3 Grid":
             return 3, 2
-        elif layout in ("3x2 Grid", "3x2 (6宫格)"):
+        elif layout == "3x2 Grid":
             return 2, 3
-        elif layout in ("3x3 Grid", "3x3 (9宫格)"):
+        elif layout == "3x3 Grid":
             return 3, 3
         elif layout == "Custom":
             return max(int(custom_cols), 1), max(int(custom_rows), 1)
@@ -117,13 +117,13 @@ class BSAI_MergeImages:
             columns = int(np.ceil(np.sqrt(num_images)))
             columns = max(columns, 1)
             rows = (num_images + columns - 1) // columns
-        elif layout == "2x2 (4宫格)":
+        elif layout == "2x2 Grid":
             columns, rows = 2, 2
-        elif layout == "2x3 (6宫格)":
+        elif layout == "2x3 Grid":
             columns, rows = 3, 2
-        elif layout == "3x2 (6宫格)":
+        elif layout == "3x2 Grid":
             columns, rows = 2, 3
-        elif layout == "3x3 (9宫格)":
+        elif layout == "3x3 Grid":
             columns, rows = 3, 3
         elif layout == "Custom":
             columns = max(int(custom_cols), 1)

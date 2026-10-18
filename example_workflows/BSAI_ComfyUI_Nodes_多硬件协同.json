@@ -35,7 +35,7 @@
         "portrait_input.png",
         "image"
       ],
-      "title": "源图像输入"
+      "title": "Source image input"
     },
     {
       "id": 2,
@@ -112,7 +112,7 @@
         "gaussian",
         "per_frame"
       ],
-      "title": "NPU 人脸检测 (Intel AI Boost)"
+      "title": "NPU face detection (Intel AI Boost)"
     },
     {
       "id": 3,
@@ -166,7 +166,7 @@
         2500,
         750
       ],
-      "title": "CPU 编排门 (显存水位决策)"
+      "title": "CPU orchestration gate (VRAM threshold decision)"
     },
     {
       "id": 4,
@@ -203,7 +203,7 @@
         "Node name for S&R": "BSAI_DrawTextOverlay"
       },
       "widgets_values": [
-        "多硬件协同 · BSAI 通用音视频节点",
+        "Multi-hardware collaboration - BSAI general A/V nodes",
         "arial.ttf",
         5.0,
         "#ffffff",
@@ -211,7 +211,7 @@
         "left",
         true
       ],
-      "title": "CUDA/CPU 字幕叠加 (通用图像工具)"
+      "title": "CUDA/CPU subtitle overlay (general image tool)"
     },
     {
       "id": 5,
@@ -245,7 +245,7 @@
       "widgets_values": [
         "minimax_h3_video_vae_fp16.safetensors"
       ],
-      "title": "视频 VAE 加载器"
+      "title": "Video VAE loader"
     },
     {
       "id": 6,
@@ -289,7 +289,7 @@
         "auto",
         2500
       ],
-      "title": "VAE 编码路由 (auto)"
+      "title": "VAE encode router (auto)"
     },
     {
       "id": 7,
@@ -333,7 +333,7 @@
         "auto",
         2500
       ],
-      "title": "VAE 解码路由 (auto→XPU 8190 worker)"
+      "title": "VAE decode router (auto -> XPU 8190 worker)"
     },
     {
       "id": 8,
@@ -362,9 +362,9 @@
         "cnr_id": "comfy-core"
       },
       "widgets_values": [
-        "BSAI_Nodes_字幕输出"
+        "BSAI_Nodes_subtitle_output"
       ],
-      "title": "结果输出"
+      "title": "Result output"
     },
     {
       "id": 9,
@@ -393,7 +393,7 @@
         "cnr_id": "comfy-core"
       },
       "widgets_values": [],
-      "title": "XPU 解码预览"
+      "title": "XPU decode preview"
     },
     {
       "id": 10,
@@ -412,7 +412,7 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "报告 / report",
+          "name": "report",
           "type": "STRING",
           "links": null
         }
@@ -424,7 +424,7 @@
         1000,
         true
       ],
-      "title": "多硬件监控 HUD (NPU/GPU/XPU/CPU)"
+      "title": "Multi-hardware monitor HUD (NPU/GPU/XPU/CPU)"
     },
     {
       "id": 11,
@@ -452,7 +452,7 @@
         "Node name for S&R": "BSAIOrchestratorStatus"
       },
       "widgets_values": [],
-      "title": "编排状态面板"
+      "title": "Orchestration status panel"
     },
     {
       "id": 12,
@@ -493,7 +493,7 @@
         "Node name for S&R": "BSAINPU_DepthEstimate"
       },
       "widgets_values": [],
-      "title": "NPU 深度估计 (DepthAnything-V2-Small, Intel AI Boost)"
+      "title": "NPU depth estimation (DepthAnything-V2-Small, Intel AI Boost)"
     },
     {
       "id": 13,
@@ -534,13 +534,13 @@
         "Node name for S&R": "BSAINPU_LLMGenerate"
       },
       "widgets_values": [
-        "你是 ComfyUI_Nodes 的硬件协同决策助手：结合当前画面/任务，判断下一步处理优先使用哪块硬件（NPU/CUDA/XPU/CPU），直接给出结论与原因，不超过 50 字，不要输出思考过程。",
+        "You are the hardware-collaboration decision assistant for ComfyUI_Nodes. Based on the current frame/task, decide which hardware (NPU/CUDA/XPU/CPU) should handle the next step. Give the conclusion and reason directly in under 50 words; do not output your reasoning process.",
         128,
         0.7,
         0.9,
         false
       ],
-      "title": "NPU LLM 决策文本 (Qwen3-4B 对称INT4, Intel AI Boost)"
+      "title": "NPU LLM decision text (Qwen3-4B symmetric INT4, Intel AI Boost)"
     },
     {
       "id": 14,
@@ -568,7 +568,7 @@
         "Node name for S&R": "ShowText"
       },
       "widgets_values": [],
-      "title": "NPU LLM 决策输出"
+      "title": "NPU LLM decision output"
     }
   ],
   "links": [

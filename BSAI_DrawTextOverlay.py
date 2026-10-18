@@ -111,7 +111,7 @@ def _ensure_font_cache():
         if not mapping:
             mapping = _enumerate_font_files()
     except Exception as e:
-        logger.warning(f"[BSAI_DrawTextOverlay] 注册表读取失败，回退文件枚举: {e}")
+        logger.warning(f"[BSAI_DrawTextOverlay] Registry read failed, falling back to file enumeration: {e}")
         try:
             mapping = _enumerate_font_files()
         except Exception:
@@ -199,7 +199,7 @@ class BSAI_DrawTextOverlay:
             try:
                 return ImageFont.truetype(font_path, size=size)
             except Exception as e:
-                logger.warning(f"[BSAI_DrawTextOverlay] 字体加载失败 '{font_path}': {e}，回退默认字体")
+                logger.warning(f"[BSAI_DrawTextOverlay] Font load failed '{font_path}': {e}; falling back to default font")
         return ImageFont.load_default(size=size)
 
     # ----- 文本换行（与原节点逻辑一致，支持 CJK 逐字断行） -----

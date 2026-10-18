@@ -175,7 +175,7 @@ class BSAI_NineGridMosaic:
                 continue
             all_images.extend(self._flatten_images(img))
         if not all_images:
-            raise ValueError("[BSAI_NineGridMosaic] 至少需要一张图像输入")
+            raise ValueError("[BSAI_NineGridMosaic] At least one image input is required")
 
         # 随机排序
         if shuffle:

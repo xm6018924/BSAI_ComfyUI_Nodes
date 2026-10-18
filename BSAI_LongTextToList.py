@@ -17,7 +17,7 @@ class BSAI_LongTextToList:
         }
 
     RETURN_TYPES = ("STRING", "INT")
-    RETURN_NAMES = ("text_list", "总段数")
+    RETURN_NAMES = ("text_list", "total_segments")
     FUNCTION = "split_text"
     CATEGORY = "BSAI/Text"
 
