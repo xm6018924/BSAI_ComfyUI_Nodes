@@ -35,6 +35,26 @@ from pathlib import Path
 from PIL import Image
 
 
+def _bsai_confine_comfy_path(path):
+    """Return the realpath of path if it lies inside a ComfyUI input/output/temp dir, else None."""
+    try:
+        real = os.path.realpath(str(path or "").strip())
+    except Exception:
+        return None
+    if not real:
+        return None
+    for base in (folder_paths.get_input_directory(),
+                 folder_paths.get_temp_directory(),
+                 folder_paths.get_output_directory()):
+        try:
+            base = os.path.realpath(base)
+            if os.path.commonpath([base, real]) == base:
+                return real
+        except Exception:
+            continue
+    return None
+
+
 class BSAI_MultiplePathsInputPlus:
     @classmethod
     def INPUT_TYPES(s):
@@ -106,6 +126,11 @@ Enhanced with batch processing support.
                 k: v for k, v in kwargs.items() if not k.startswith("path_") and k != "batch_size"
             }
 
+            # Confine user-supplied paths to ComfyUI's input/output/temp folders.
+            path = _bsai_confine_comfy_path(path)
+            if path is None:
+                path_list.append(None)
+                continue
             path = self.convert_path_to_json(path, **filtered_kwargs)
             path_list.append(path)
         return (path_list,)
@@ -1223,7 +1248,7 @@ class BSAI_QwenMultimodalInference:
 
         # Process video inputs
         for idx, video_input in enumerate([video_1, video_2, video_3], 1):
-            video_path = _bsai_get_video_path(video_input)
+            video_path = _bsai_confine_comfy_path(_bsai_get_video_path(video_input))
             if video_path:
                 frames = _bsai_extract_video_frames(video_path, max_frames=int(video_max_frames))
                 for fidx, frame in enumerate(frames):
@@ -1363,13 +1388,15 @@ try:
 
     @_PromptServer.instance.routes.get("/bsai_vlp/video_info")
     async def _bsai_vlp_video_info(request):
-        fname = request.query.get("filename", "")
-        subfolder = request.query.get("subfolder", "")
+        fname = os.path.basename(request.query.get("filename", ""))
+        subfolder = str(request.query.get("subfolder", "") or "").replace("\\", "/").strip("/")
         if not fname:
             return _aiohttp_web.json_response({"error": "no filename"}, status=400)
         try:
-            base = folder_paths.get_input_directory()
-            vpath = os.path.join(base, subfolder, fname) if subfolder else os.path.join(base, fname)
+            base = os.path.realpath(folder_paths.get_input_directory())
+            vpath = os.path.realpath(os.path.join(base, subfolder, fname))
+            if os.path.commonpath([base, vpath]) != base:
+                return _aiohttp_web.json_response({"error": "invalid path"}, status=400)
             cap = cv2.VideoCapture(vpath)
             if not cap.isOpened():
                 return _aiohttp_web.json_response({"error": "cannot open"}, status=404)
