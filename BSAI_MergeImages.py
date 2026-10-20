@@ -21,7 +21,10 @@ class BSAI_MergeImages:
         return {
             "required": {
                 "images": ("IMAGE",),
-                "layout": (["Auto", "2x2 Grid", "2x3 Grid", "3x2 Grid", "3x3 Grid", "Custom"], {"default": "Auto", "tooltip": "Image grid layout"}),
+                # 后 4 项为旧版标签：兼容老工作流 JSON 保存值
+                "layout": (["Auto", "2x2 Grid", "2x3 Grid", "3x2 Grid", "3x3 Grid",
+                            "2x2 (4宫格)", "2x3 (6宫格)", "3x2 (6宫格)", "3x3 (9宫格)", "Custom"],
+                           {"default": "Auto", "tooltip": "Image grid layout"}),
             },
             "optional": {
                 "custom_rows": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1, "tooltip": "Custom row count (used when Custom is selected)"}),
@@ -89,13 +92,14 @@ class BSAI_MergeImages:
 
     @staticmethod
     def _get_grid_size(layout, custom_rows, custom_cols):
-        if layout == "2x2 Grid":
+        # 后一个为旧版标签：兼容老工作流 JSON 保存值
+        if layout in ("2x2 Grid", "2x2 (4宫格)"):
             return 2, 2
-        elif layout == "2x3 Grid":
+        elif layout in ("2x3 Grid", "2x3 (6宫格)"):
             return 3, 2
-        elif layout == "3x2 Grid":
+        elif layout in ("3x2 Grid", "3x2 (6宫格)"):
             return 2, 3
-        elif layout == "3x3 Grid":
+        elif layout in ("3x3 Grid", "3x3 (9宫格)"):
             return 3, 3
         elif layout == "Custom":
             return max(int(custom_cols), 1), max(int(custom_rows), 1)
@@ -117,13 +121,13 @@ class BSAI_MergeImages:
             columns = int(np.ceil(np.sqrt(num_images)))
             columns = max(columns, 1)
             rows = (num_images + columns - 1) // columns
-        elif layout == "2x2 Grid":
+        elif layout in ("2x2 Grid", "2x2 (4宫格)"):
             columns, rows = 2, 2
-        elif layout == "2x3 Grid":
+        elif layout in ("2x3 Grid", "2x3 (6宫格)"):
             columns, rows = 3, 2
-        elif layout == "3x2 Grid":
+        elif layout in ("3x2 Grid", "3x2 (6宫格)"):
             columns, rows = 2, 3
-        elif layout == "3x3 Grid":
+        elif layout in ("3x3 Grid", "3x3 (9宫格)"):
             columns, rows = 3, 3
         elif layout == "Custom":
             columns = max(int(custom_cols), 1)

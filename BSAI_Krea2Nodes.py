@@ -186,6 +186,10 @@ STYLE_INSTRUCTIONS = {
 }
 
 
+# 旧版中文标签 → 当前英文标签：兼容老工作流 JSON 保存值（语义完全一致）
+_LEGACY_STYLE_LEVELS = {"轻微": "subtle", "平衡": "balanced", "强烈": "strong"}
+
+
 # ============================================================================
 # BSAI Krea 2 Style Reference
 # ============================================================================
@@ -206,7 +210,8 @@ class BSAI_Krea2StyleReference:
                     "step": 0.05,
                     "tooltip": "Style reference strength. 0.0 = no influence, 1.0 = standard, 2.0 = very strong.",
                 }),
-                "style_level": (["subtle", "balanced", "strong"], {
+                # 后 3 项为旧版标签：兼容老工作流 JSON 保存值
+                "style_level": (["subtle", "balanced", "strong", "轻微", "平衡", "强烈"], {
                     "default": "balanced",
                     "tooltip": "Semantic style strength level, controlling how strongly the reference image influences the prompt.",
                 }),
@@ -229,6 +234,7 @@ class BSAI_Krea2StyleReference:
     CATEGORY = "BSAI/Krea2"
 
     def encode(self, clip, image, strength, style_level, vision_resolution=384, style_reference_in=None):
+        style_level = _LEGACY_STYLE_LEVELS.get(style_level, style_level)
         image_for_clip = _resize_image_for_vision(image, vision_resolution)
         instruction = STYLE_INSTRUCTIONS.get(style_level, STYLE_INSTRUCTIONS["balanced"])
         text = f"{instruction}\n\n[Style Reference Image]"
@@ -278,7 +284,8 @@ class BSAI_Krea2Image:
                 "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
                 "tooltip": f"Strength of style reference image {i}.",
             })
-            optional[f"style_level_{i}"] = (["subtle", "balanced", "strong"], {
+            # 后 3 项为旧版标签：兼容老工作流 JSON 保存值
+            optional[f"style_level_{i}"] = (["subtle", "balanced", "strong", "轻微", "平衡", "强烈"], {
                 "default": "balanced",
                 "tooltip": f"Semantic style level of reference image {i}.",
             })
@@ -364,6 +371,8 @@ class BSAI_Krea2Image:
             img = locals().get(f"style_image_{i}")
             strength = locals().get(f"style_strength_{i}", 1.0) or 1.0
             level = locals().get(f"style_level_{i}", "balanced") or "balanced"
+            # 旧版中文标签映射到当前英文标签（语义完全一致）
+            level = _LEGACY_STYLE_LEVELS.get(level, level)
             if img is not None:
                 ref_pairs.append((img, strength, level))
         for ref_img, ref_strength, ref_level in ref_pairs:

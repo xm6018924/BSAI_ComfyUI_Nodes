@@ -157,7 +157,8 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
                 "loop": ("BOOLEAN", {"default": False}),
                 "resize_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
                 "resize_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
-                "output_mode": (["full_video", "selected_frame"], {"default": "full_video"}),
+                # 后 2 项为旧版标签：兼容老工作流 JSON 保存值（仅作缓存键，行为不变）
+                "output_mode": (["full_video", "selected_frame", "完整视频", "选中单帧"], {"default": "full_video"}),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 100000, "step": 1}),
             },
         }
@@ -457,7 +458,8 @@ class _BSAI_QwenStorage:
 
         mmproj = config.get("mmproj", "None")
         mmproj_path = None
-        if mmproj and mmproj != "None":
+        # "无" 为旧版哨兵标签：兼容老工作流 JSON 保存值
+        if mmproj and mmproj not in ("None", "无"):
             mmproj_path = os.path.join(folder_paths.models_dir, "LLM", mmproj)
             if not os.path.exists(mmproj_path):
                 raise FileNotFoundError(f"mmproj file not found: {mmproj_path}")
@@ -1066,19 +1068,24 @@ class BSAI_QwenModelLoader:
     def INPUT_TYPES(s):
         all_files = _bsai_list_llm_files()
         model_list = [f for f in all_files if "mmproj" not in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin", ".pth", ".pt"]]
-        mmproj_list = ["None"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
+        # "无" 为旧版哨兵标签：兼容老工作流 JSON 保存值
+        mmproj_list = ["None", "无"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
 
         if not model_list:
-            model_list = ["(place models in models/LLM)"]
+            # 第 2 项为旧版占位标签：兼容老工作流 JSON 保存值
+            model_list = ["(place models in models/LLM)", "（请把模型放到 models/LLM）"]
 
         # Strata quant options (兼容旧工作流保存的中文标签, load() 内统一映射)
         strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)",
                          "Auto (自动适配)", "Q2_0 (最快 / fastest)", "IQ2_XS (略好 / better)",
-                         "IQ3_XXS (更好 / good)", "IQ3_S (最好 / best quality)"]
+                         "IQ3_XXS (更好 / good)", "IQ3_S (最好 / best quality)",
+                         # 后 4 项为 i18n 前本节点的旧版标签：兼容老工作流 JSON 保存值
+                         "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"]
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
+                # 第 2 项为旧版标签：兼容老工作流 JSON 保存值（同样落在 llama.cpp 分支）
+                "backend": (["llama.cpp (local GGUF)", "llama.cpp (本地加载GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
                           {"default": "llama.cpp (local GGUF)",
                            "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the AI蛮子 ninfer-serve engine on a dynamic free port (8081+)"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
@@ -1122,6 +1129,11 @@ class BSAI_QwenModelLoader:
                 "IQ3_XXS (更好 / good)": "IQ3_XXS",
                 "IQ3_S (best)": "IQ3_S",
                 "IQ3_S (最好 / best quality)": "IQ3_S",
+                # i18n 前本节点的旧版标签
+                "Q2_0 (最快)": "Q2_0",
+                "IQ2_XS (略好)": "IQ2_XS",
+                "IQ3_XXS (更好)": "IQ3_XXS",
+                "IQ3_S (最好)": "IQ3_S",
             }
             quant = quant_map.get(strata_quant, None)
 
@@ -1205,11 +1217,12 @@ class BSAI_QwenModelLoader:
                 print("[BSAI] Please check BSAI-FLUX3-ComfyUI/engine/ and *.ninfer model in models/LLM")
             return (_BSAI_NInferHTTPBackend(n_ctx=ctx, ninfer_model=ninfer_model),)
 
-        if model_file is None or str(model_file).startswith("(place models"):
+        if model_file is None or str(model_file).startswith("(place models") or str(model_file).startswith("（请把模型放到"):
             raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
 
         if model_family in ("Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"):
-            if str(mmproj) in ("None",):
+            # "无" 为旧版哨兵标签：兼容老工作流 JSON 保存值
+            if str(mmproj) in ("None", "无"):
                 raise RuntimeError(
                     f"{model_family} is a multimodal model and requires an mmproj file.\n" +
                     "Please select the matching mmproj file in the 'mmproj' option."
@@ -1438,6 +1451,61 @@ def _bsai_comfy_audio_to_np(audio_input):
         return None, None
 
 
+def _bsai_asr_fmt_ts(sec):
+    """秒 -> 'mm:ss' 时间戳（分段转写用）。"""
+    sec = max(0.0, float(sec))
+    m = int(sec // 60)
+    s = int(round(sec - m * 60))
+    if s >= 60:
+        m += 1
+        s -= 60
+    return f"{m:02d}:{s:02d}"
+
+
+def _bsai_asr_lang_code(label):
+    """'中文 (zh)' -> 'zh'；'自动检测'/'未知' -> None（不传 language，Whisper 自行检测）。"""
+    import re as _re
+    m = _re.search(r"\(([a-z]{2})\)", str(label or ""))
+    return m.group(1) if m else None
+
+
+# 低于该 RMS(约-49dBFS)的 30s 块视为静音, 直接标注跳过, 不进 Whisper
+# (防止长前奏/间奏静音段触发 Whisper 幻觉文本, 同时省推理时间)
+_BSAI_ASR_SILENCE_RMS = 0.0035
+
+
+def _bsai_asr_transcribe_segments(audio_16k, proc, model, dev, language=None):
+    """30s 分块转写 -> 带时间戳的分段文本。
+
+    每块: 静音(RMS<阈值)标「（无人声）」跳过; 其余 generate(强制 language) 转写,
+    空结果标「（无人声/纯音乐）」。输出格式 '[mm:ss-mm:ss] 文本' 每行一段,
+    为下游 LLM 提供歌词时间轴锚点。
+    """
+    win = 30 * 16000
+    segs = []
+    gen_kw = {"task": "transcribe"}
+    if language:
+        gen_kw["language"] = language
+    for i in range(0, len(audio_16k), win):
+        chunk = audio_16k[i:i + win]
+        if len(chunk) < 8000:  # skip <0.5s tail
+            continue
+        t0, t1 = i / 16000.0, (i + len(chunk)) / 16000.0
+        ts = f"[{_bsai_asr_fmt_ts(t0)}-{_bsai_asr_fmt_ts(t1)}]"
+        rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+        if rms < _BSAI_ASR_SILENCE_RMS:
+            segs.append(f"{ts}（无人声）")
+            continue
+        inputs = proc(chunk, sampling_rate=16000, return_tensors="pt")
+        feat = inputs.input_features.to(dev).to(model.dtype)
+        import torch as _t
+        with _t.no_grad():
+            pred = model.generate(feat, **gen_kw)
+        text = proc.batch_decode(pred, skip_special_tokens=True)[0].strip()
+        segs.append(f"{ts} {text}" if text else f"{ts}（无人声/纯音乐）")
+    return "\n".join(segs)
+
+
 def _bsai_audio_to_temp_wav(audio_input, temp_dir):
     """ComfyUI AUDIO dict -> temp wav path (for the XPU worker), or None."""
     audio, sr = _bsai_comfy_audio_to_np(audio_input)
@@ -1480,10 +1548,10 @@ def _bsai_get_whisper_worker():
     return p
 
 
-def _bsai_whisper_via_worker(wav_path):
+def _bsai_whisper_via_worker(wav_path, language=None):
     import json as _json
     p = _bsai_get_whisper_worker()
-    p.stdin.write(_json.dumps({"wav": wav_path}) + "\n")
+    p.stdin.write(_json.dumps({"wav": wav_path, "language": language}) + "\n")
     p.stdin.flush()
     line = p.stdout.readline()
     if not line:
@@ -1494,7 +1562,7 @@ def _bsai_whisper_via_worker(wav_path):
     return resp.get("text", "")
 
 
-def _bsai_whisper_inline(audio, sr, device):
+def _bsai_whisper_inline(audio, sr, device, language=None):
     """Inline whisper transcription inside the ComfyUI process (CUDA fp16 / CPU fp32)."""
     global _BSAI_WHISPER_CACHE
     import torch as _t
@@ -1515,39 +1583,30 @@ def _bsai_whisper_inline(audio, sr, device):
     if sr != 16000:
         import librosa
         audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
-    win = 30 * 16000
-    texts = []
-    for i in range(0, len(audio), win):
-        chunk = audio[i:i + win]
-        if len(chunk) < 8000:
-            continue
-        inputs = proc(chunk, sampling_rate=16000, return_tensors="pt")
-        feat = inputs.input_features.to(dev).to(mdl.dtype)
-        with _t.no_grad():
-            pred = mdl.generate(feat)
-        texts.append(proc.batch_decode(pred, skip_special_tokens=True)[0].strip())
-    return " ".join(t for t in texts if t)
+    return _bsai_asr_transcribe_segments(
+        np.asarray(audio, dtype=np.float32), proc, mdl, dev, language=language)
 
 
-def _bsai_whisper_transcribe(audio_input, device_pref, temp_dir):
+def _bsai_whisper_transcribe(audio_input, device_pref, temp_dir, language=None):
     """Dispatch ASR by device preference:
-       auto -> persistent XPU (Intel iGPU) worker; cuda -> inline fp16 on 5090; cpu -> inline CPU."""
+       auto -> persistent XPU (Intel iGPU) worker; cuda -> inline fp16 on 5090; cpu -> inline CPU.
+       language: ISO-639-1 code (e.g. 'zh') to force decoder language; None = auto-detect."""
     pref = str(device_pref)
     if pref.startswith("本机GPU"):
         audio, sr = _bsai_comfy_audio_to_np(audio_input)
         if audio is None:
             return ""
-        return _bsai_whisper_inline(audio, sr, "cuda")
+        return _bsai_whisper_inline(audio, sr, "cuda", language=language)
     if pref.startswith("CPU"):
         audio, sr = _bsai_comfy_audio_to_np(audio_input)
         if audio is None:
             return ""
-        return _bsai_whisper_inline(audio, sr, "cpu")
+        return _bsai_whisper_inline(audio, sr, "cpu", language=language)
     # auto: XPU worker on the idle Intel iGPU
     wav_path = _bsai_audio_to_temp_wav(audio_input, temp_dir)
     if not wav_path:
         return ""
-    return _bsai_whisper_via_worker(wav_path)
+    return _bsai_whisper_via_worker(wav_path, language=language)
 
 
 def _bsai_comfy_audio_to_wav_b64(audio_input):
@@ -1586,6 +1645,7 @@ class BSAI_QwenMultimodalInference:
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
                 "audio_mode": (["本地ASR转写（推荐：兼容所有模型，提取字幕）", "原生音频模态（input_audio：需Omni/音频模型）"], {"default": "本地ASR转写（推荐：兼容所有模型，提取字幕）", "tooltip": "本地ASR转写：用本地Whisper large-v3把音频转成字幕文本注入prompt，兼容所有模型；原生音频模态：把音频作为input_audio直接发给后端，仅支持Qwen2.5-Omni等原生音频模型。"}),
                 "whisper_device": (["自动（Intel核显XPU优先，不占5090显存）", "本机GPU CUDA（5090，最快但占~3GB显存）", "CPU（最慢，零GPU占用）"], {"default": "自动（Intel核显XPU优先，不占5090显存）", "tooltip": "ASR运行位置：自动优先用闲置的Intel核显跑常驻worker（不占5090）；本机GPU直接在5090上fp16跑（最快但占3GB显存）；CPU兜底。"}),
+                "whisper_language": (["中文 (zh)", "自动检测", "英语 (en)", "日语 (ja)", "韩语 (ko)"], {"default": "中文 (zh)", "tooltip": "ASR识别语言：歌曲/中文内容强制zh可消除语言误判型幻觉（长前奏纯音乐段自动检测常猜错语言产生乱码歌词）；选自动检测则由Whisper自行判断。"}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
@@ -1607,7 +1667,7 @@ class BSAI_QwenMultimodalInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
+    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, whisper_language="中文 (zh)", image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
         llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -1649,9 +1709,24 @@ class BSAI_QwenMultimodalInference:
                     content_items.append({"type": "input_audio", "input_audio": {"data": b64, "format": "wav"}})
             else:
                 try:
-                    transcript = _bsai_whisper_transcribe(audio_in, whisper_device, temp_dir)
+                    # 客观元数据(时长/采样率)直接从 AUDIO tensor 测量, 防止 LLM 编造时长
+                    _a_np, _a_sr = _bsai_comfy_audio_to_np(audio_in)
+                    _dur = (len(_a_np) / float(_a_sr)) if (_a_np is not None and _a_sr) else 0.0
+                    transcript = _bsai_whisper_transcribe(
+                        audio_in, whisper_device, temp_dir,
+                        language=_bsai_asr_lang_code(whisper_language))
                     if transcript:
-                        content_items.append({"type": "text", "text": f"[音频{idx}转写字幕]\n{transcript}"})
+                        _dur_str = f"{int(_dur // 60)}分{_dur % 60:.1f}秒" if _dur > 0 else "未知"
+                        _meta = (f"[音频{idx} 元数据] 时长 {_dur_str} ({_dur:.1f}秒)"
+                                 f" | 采样率 {int(_a_sr)}Hz | 本地 Whisper-large-v3 转写")
+                        _rules = (
+                            f"[音频{idx} ASR使用规则] 上述转写为机器自动生成，唱腔/混响可能造成错字漏句，仅供参考。"
+                            f"① 涉及时长、CLIP/分镜数量的任何计算，必须以上方「时长」元数据为准，禁止自行推算或编造；"
+                            f"② 歌名/歌手等身份信息只能依据转写文本中真实出现的歌词推断，且须引用转写原文佐证，"
+                            f"无法确认时必须明确写「依据现有转写无法确认」，禁止凭记忆猜测或联想；"
+                            f"③ 标注「（无人声）」或转写为空的段落是纯音乐/静音/间奏，不得为其虚构歌词。")
+                        content_items.append({"type": "text", "text":
+                                              f"{_meta}\n[音频{idx} 分段转写]\n{transcript}\n{_rules}"})
                 except Exception as e:
                     import logging as _lg
                     _lg.warning(f"[BSAI] audio_{idx} ASR transcription failed: {e}")

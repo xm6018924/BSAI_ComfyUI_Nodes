@@ -117,10 +117,13 @@ class BSAI_MultiImageVideoReverse:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "backend": (["Ollama (local 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)", "BSAI Nemotron (llama.cpp @8085)", "BSAI NInfer (本地反推 @808x)"],
+                # 第 2 项为旧版标签：兼容老工作流 JSON 保存值（同样落在 Ollama 分支）
+                "backend": (["Ollama (local 11434)", "Ollama (本地 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)", "BSAI Nemotron (llama.cpp @8085)", "BSAI NInfer (本地反推 @808x)"],
                             {"default": "Ollama (local 11434)",
                              "tooltip": "Inference backend: Ollama, BSAI Strata HTTP, or BSAI NInfer (AI蛮子 ninfer engine, dynamic free port)"}),
-                "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"],
+                # 后 5 项为旧版标签：兼容老工作流 JSON 保存值，multi_media_reverse() 入口统一映射
+                "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)",
+                                  "Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"],
                             {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level, Auto picks the fastest"}),
                 "ninfer_model": (["(Auto — first model found)"] + _mir_ninfer_model_list(),
                             {"default": "(Auto — first model found)",
@@ -272,6 +275,16 @@ class BSAI_MultiImageVideoReverse:
                           video1=None, video2=None, video3=None, video4=None, video5=None,
                           video_sample_interval=10, max_frames_per_video=5,
                           temperature=0.7, top_p=0.9, max_tokens=32768):
+
+        # 兼容旧工作流保存的中文标签 -> 映射到当前英文标签（语义/参数值完全一致）
+        _legacy_quant = {
+            "Auto (自动适配)": "Auto (auto)",
+            "Q2_0 (最快)": "Q2_0 (fastest)",
+            "IQ2_XS (略好)": "IQ2_XS (slightly better)",
+            "IQ3_XXS (更好)": "IQ3_XXS (better)",
+            "IQ3_S (最好)": "IQ3_S (best)",
+        }
+        strata_quant = _legacy_quant.get(strata_quant, strata_quant)
 
         # ---- BSAI Strata HTTP backend (OpenAI-compatible) ----
         if str(backend).lower().startswith("bsai strata"):
