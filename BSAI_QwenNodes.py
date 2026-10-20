@@ -1071,8 +1071,10 @@ class BSAI_QwenModelLoader:
         if not model_list:
             model_list = ["(place models in models/LLM)"]
 
-        # Strata quant options
-        strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"]
+        # Strata quant options (兼容旧工作流保存的中文标签, load() 内统一映射)
+        strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)",
+                         "Auto (自动适配)", "Q2_0 (最快 / fastest)", "IQ2_XS (略好 / better)",
+                         "IQ3_XXS (更好 / good)", "IQ3_S (最好 / best quality)"]
 
         return {
             "required": {
@@ -1083,7 +1085,8 @@ class BSAI_QwenModelLoader:
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
                 "enable_thinking": ("BOOLEAN", {"default": False}),
-                "context_length": ("INT", {"default": 32768, "min": 1024, "max": 327680, "step": 256}),
+                "context_length": ("INT", {"default": 32768, "min": -1, "max": 327680, "step": 256,
+                                            "tooltip": "上下文长度; -1 = 自动(32768), 兼容旧工作流保存的 -1"}),
                 "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
                 "strata_quant": (strata_quants, {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level; Auto picks the fastest"}),
                 "ninfer_model": (["(Auto — first model found)"] + _bsai_ninfer_model_list(),
@@ -1101,15 +1104,24 @@ class BSAI_QwenModelLoader:
     CATEGORY = "BSAI"
 
     def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)"):
+        # 兼容旧工作流: context_length=-1 (旧版 auto 语义) -> 默认 32768
+        ctx = int(context_length)
+        if ctx < 1024:
+            ctx = 32768
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
         if str(backend).startswith("BSAI Strata"):
-            # Parse quant label
+            # Parse quant label (含旧版中文标签映射)
             quant_map = {
                 "Auto (auto)": None,
+                "Auto (自动适配)": None,
                 "Q2_0 (fastest)": "Q2_0",
+                "Q2_0 (最快 / fastest)": "Q2_0",
                 "IQ2_XS (slightly better)": "IQ2_XS",
+                "IQ2_XS (略好 / better)": "IQ2_XS",
                 "IQ3_XXS (better)": "IQ3_XXS",
+                "IQ3_XXS (更好 / good)": "IQ3_XXS",
                 "IQ3_S (best)": "IQ3_S",
+                "IQ3_S (最好 / best quality)": "IQ3_S",
             }
             quant = quant_map.get(strata_quant, None)
 
@@ -1155,7 +1167,7 @@ class BSAI_QwenModelLoader:
             except Exception:
                 pass
 
-            return (_BSAI_StrataHTTPBackend(n_ctx=int(context_length), quant_label=quant),)
+            return (_BSAI_StrataHTTPBackend(n_ctx=ctx, quant_label=quant),)
 
         # --- Nemotron HTTP backend: talk to the local llama.cpp engine ---
         if str(backend).startswith("BSAI Nemotron"):
@@ -1174,7 +1186,7 @@ class BSAI_QwenModelLoader:
                 print(f"[BSAI] Auto-start Nemotron failed: {e}")
                 print("[BSAI] 请确认 llama.cpp 已放入 BSAI-LLM-Strata/Nemotron/llama.cpp/，"
                       "模型已下载到 models/LLM/Nemotron/")
-            return (_BSAI_NemotronHTTPBackend(n_ctx=int(context_length)),)
+            return (_BSAI_NemotronHTTPBackend(n_ctx=ctx),)
 
         # --- NInfer HTTP backend: talk to the AI蛮子 ninfer-serve engine ---
         if str(backend).startswith("BSAI NInfer"):
@@ -1191,7 +1203,7 @@ class BSAI_QwenModelLoader:
             except Exception as e:
                 print(f"[BSAI] Auto-start NInfer failed: {e}")
                 print("[BSAI] Please check BSAI-FLUX3-ComfyUI/engine/ and *.ninfer model in models/LLM")
-            return (_BSAI_NInferHTTPBackend(n_ctx=int(context_length), ninfer_model=ninfer_model),)
+            return (_BSAI_NInferHTTPBackend(n_ctx=ctx, ninfer_model=ninfer_model),)
 
         if model_file is None or str(model_file).startswith("(place models"):
             raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
@@ -1208,7 +1220,7 @@ class BSAI_QwenModelLoader:
             "model": model_file,
             "mmproj": mmproj,
             "think": bool(enable_thinking),
-            "n_ctx": int(context_length),
+            "n_ctx": ctx,
             "n_gpu_layers": int(gpu_layers),
         }
         model = _BSAI_QwenStorage.load(config)
