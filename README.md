@@ -33,7 +33,7 @@ pip install -r requirements.txt   # 可选依赖按需安装
 |---|---|
 | **BSAI Qwen Model Loader** | 加载 Qwen3-VL / Qwen3.5-VL / Qwen3.6-VL / Qwen3.8-VL / Gemma4（GGUF），支持多模态视觉投影 / Load GGUF LLM with vision projection |
 | **BSAI Qwen Prompt Inference** | 纯文本提示词推理，支持温度、top_p、top_k / Text prompt inference |
-| **BSAI Qwen Multimodal Inference** | 多模态推理：5 张图片 + 3 个视频输入，自动采样视频帧 / Multimodal inference |
+| **BSAI Qwen Multimodal Inference** | 多模态推理：5 图 + 3 视频 + 3 音频输入；视频自动采样帧；音频默认本地 Whisper-large-v3 转写字幕（兼容所有模型），可切原生 input_audio（Omni 模型）/ Multimodal inference: 5 images + 3 videos + 3 audio inputs |
 | **BSAI Qwen Unload Model** | 卸载模型释放显存（默认推理后自动卸载）/ Unload model to free VRAM |
 | **BSAI Multiple Paths Input Plus** | 多路径合并为批量输入，图片/视频自动识别 / Merge multiple paths into a batch |
 | **BSAI Video Loader Plus** | 视频加载器：帧率、起止帧、缩放等 / Video loader with fps/range/scale |

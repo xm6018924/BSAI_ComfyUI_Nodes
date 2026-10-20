@@ -16,6 +16,36 @@ from typing import TYPE_CHECKING, Any, Literal
 from dataclasses import dataclass, field
 from pydantic.json_schema import JsonSchemaValue
 
+
+def _mir_ninfer_model_list():
+    """NInfer 模型下拉：models/LLM 下所有 *.ninfer 相对路径。"""
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        if not os.path.exists(_p):
+            return []
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        return [rel for rel, _abs in _m.NInferManager.list_models()]
+    except Exception:
+        return []
+
+
+def _mir_nemotron_model_list():
+    """Nemotron 模型下拉：models/LLM/Nemotron 下所有非 mmproj 的 *.gguf。"""
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        if not os.path.exists(_p):
+            return []
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        return [rel for rel, _abs, kind in _m.NemotronManager.list_models() if kind == "model"]
+    except Exception:
+        return []
+
 # For type checking only. Torch is not installed at runtime
 if TYPE_CHECKING:
     import torch
@@ -87,11 +117,17 @@ class BSAI_MultiImageVideoReverse:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "backend": (["Ollama (local 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)"],
+                "backend": (["Ollama (local 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)", "BSAI Nemotron (llama.cpp @8085)", "BSAI NInfer (本地反推 @808x)"],
                             {"default": "Ollama (local 11434)",
-                             "tooltip": "Inference backend: Ollama or BSAI Strata HTTP"}),
+                             "tooltip": "Inference backend: Ollama, BSAI Strata HTTP, or BSAI NInfer (AI蛮子 ninfer engine, dynamic free port)"}),
                 "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"],
                             {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level, Auto picks the fastest"}),
+                "ninfer_model": (["(Auto — first model found)"] + _mir_ninfer_model_list(),
+                            {"default": "(Auto — first model found)",
+                             "tooltip": "NInfer backend only: which *.ninfer model to load (models/LLM). Changing it restarts the NInfer engine."}),
+                "nemotron_model": (["(Auto — first model found)"] + _mir_nemotron_model_list(),
+                            {"default": "(Auto — first model found)",
+                             "tooltip": "Nemotron backend only: which GGUF model to load (models/LLM/Nemotron, excludes mmproj). Changing it restarts llama.cpp."}),
                 "system": ("STRING", {
                     "multiline": True,
                     "default": "You are an expert image and video analyst, skilled at analyzing multiple images and video frames to extract common features and themes. Analyze the following content in detail, extract key elements, style, color, composition, and generate a detailed description.",
@@ -230,7 +266,7 @@ class BSAI_MultiImageVideoReverse:
 
         return images_b64
 
-    def multi_media_reverse(self, backend, strata_quant, system, prompt, model="qwen3.8:latest", url="http://127.0.0.1:11434", custom_model="",
+    def multi_media_reverse(self, backend, strata_quant, ninfer_model, nemotron_model, system, prompt, model="qwen3.8:latest", url="http://127.0.0.1:11434", custom_model="",
                           image1=None, image2=None, image3=None, image4=None, image5=None,
                           image6=None, image7=None, image8=None, image9=None, image10=None,
                           video1=None, video2=None, video3=None, video4=None, video5=None,
@@ -246,6 +282,30 @@ class BSAI_MultiImageVideoReverse:
                 video_sample_interval, max_frames_per_video,
                 temperature, top_p, max_tokens,
                 quant_label=strata_quant,
+            )
+
+        # ---- BSAI Nemotron HTTP backend (llama.cpp @8085) ----
+        if str(backend).lower().startswith("bsai nemotron"):
+            return self._reverse_via_nemotron(
+                system=system, prompt=prompt,
+                image1=image1, image2=image2, image3=image3, image4=image4, image5=image5,
+                image6=image6, image7=image7, image8=image8, image9=image9, image10=image10,
+                video1=video1, video2=video2, video3=video3, video4=video4, video5=video5,
+                video_sample_interval=video_sample_interval,
+                max_frames_per_video=max_frames_per_video,
+                temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                model_path=nemotron_model,
+            )
+
+        # ---- BSAI NInfer HTTP backend (AI蛮子 ninfer engine) ----
+        if str(backend).lower().startswith("bsai ninfer"):
+            return self._reverse_via_ninfer(
+                system, prompt, image1, image2, image3, image4, image5,
+                image6, image7, image8, image9, image10,
+                video1, video2, video3, video4, video5,
+                video_sample_interval, max_frames_per_video,
+                temperature, top_p, max_tokens,
+                model_path=ninfer_model,
             )
 
         # Determine the model to use
@@ -345,7 +405,7 @@ class BSAI_MultiImageVideoReverse:
             _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
             if os.path.exists(_p):
                 _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-                _m = _ilu.util.module_from_spec(_spec)
+                _m = _ilu.module_from_spec(_spec)
                 _spec.loader.exec_module(_m)
                 ok, msg = _m.StrataManager.ensure_running(quant_label=quant_label)
                 print(f"[BSAI_MultiImageReverse] Strata auto-start: {ok} ({msg})")
@@ -401,6 +461,166 @@ class BSAI_MultiImageVideoReverse:
             return text, thinking, prompt_list
         except Exception as e:
             err = f"[BSAI Strata reverse failed] {type(e).__name__}: {e} (is Strata running at 127.0.0.1:8080?)"
+            print(err)
+            return err, "", []
+
+    def _reverse_via_nemotron(self, system, prompt,
+                              image1, image2, image3, image4, image5,
+                              image6, image7, image8, image9, image10,
+                              video1, video2, video3, video4, video5,
+                              video_sample_interval, max_frames_per_video,
+                              temperature, top_p, max_tokens, model_path="(Auto — first model found)"):
+        """OpenAI-compatible chat.completions call to local Nemotron 3.5 Bolt
+        (llama.cpp @127.0.0.1:8085, auto-started via NemotronManager)."""
+        import json as _json
+
+        # Auto-start Nemotron if not running
+        try:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            if os.path.exists(_p):
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                _mp = None if str(model_path).startswith("(Auto") else str(model_path)
+                ok, msg = _m.NemotronManager.ensure_running(model_path=_mp)
+                print(f"[BSAI_MultiImageReverse] Nemotron auto-start: {ok} ({msg})")
+        except Exception as _e:
+            print(f"[BSAI_MultiImageReverse] Nemotron auto-start skipped: {_e}")
+
+        # collect all images (already base64 PNG)
+        images_b64 = []
+        for img in [image1, image2, image3, image4, image5, image6, image7, image8, image9, image10]:
+            if img is not None:
+                images_b64.extend(self._process_image_tensor(img))
+        for vid in [video1, video2, video3, video4, video5]:
+            if vid is not None:
+                images_b64.extend(self._process_video_tensor(vid, video_sample_interval, max_frames_per_video))
+
+        if not images_b64:
+            return "No valid image or video input", "", []
+
+        # build OpenAI multimodal content
+        content = [{"type": "text", "text": prompt}]
+        for b64 in images_b64:
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        body = {
+            "model": "Nemotron-3.5-Bolt-74B-A9B",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+            "max_tokens": int(max_tokens),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "stream": False,
+        }
+        try:
+            import socket as _sk, http.client as _hc
+            s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+            s.settimeout(600); s.setblocking(True)
+            s.connect(("127.0.0.1", 8085))
+            try:
+                conn = _hc.HTTPConnection("127.0.0.1", 8085, timeout=600)
+                conn.sock = s
+                conn.request("POST", "/v1/chat/completions",
+                             body=_json.dumps(body).encode("utf-8"),
+                             headers={"Content-Type": "application/json", "Authorization": "Bearer strata"})
+                out = _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+            finally:
+                s.close()
+            text = out["choices"][0]["message"]["content"]
+            thinking = ""
+            prompt_list = [l.strip() for l in text.split("\n") if l.strip()]
+            return text, thinking, prompt_list
+        except Exception as e:
+            err = f"[BSAI Nemotron reverse failed] {type(e).__name__}: {e} (is llama.cpp running at 127.0.0.1:8085?)"
+            print(err)
+            return err, "", []
+
+    def _reverse_via_ninfer(self, system, prompt,
+                            image1, image2, image3, image4, image5,
+                            image6, image7, image8, image9, image10,
+                            video1, video2, video3, video4, video5,
+                            video_sample_interval, max_frames_per_video,
+                            temperature, top_p, max_tokens,
+                            model_path="(Auto — first model found)"):
+        """OpenAI-compatible chat.completions call to local NInfer (AI蛮子 ninfer engine,
+        dynamic port managed by NInferManager in BSAI-LLM-Strata)."""
+        import json as _json
+
+        # Auto-start NInfer if not running
+        try:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            if os.path.exists(_p):
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                _mp = None if str(model_path).startswith("(Auto") else str(model_path)
+                ok, msg = _m.NInferManager.ensure_running(model_path=_mp)
+                print(f"[BSAI_MultiImageReverse] NInfer auto-start: {ok} ({msg})")
+                if not ok:
+                    return f"[BSAI NInfer reverse failed] 启动失败: {msg}", "", []
+        except Exception as _e:
+            print(f"[BSAI_MultiImageReverse] NInfer auto-start skipped: {_e}")
+
+        # collect all images (already base64 PNG)
+        images_b64 = []
+        for img in [image1, image2, image3, image4, image5, image6, image7, image8, image9, image10]:
+            if img is not None:
+                images_b64.extend(self._process_image_tensor(img))
+        for vid in [video1, video2, video3, video4, video5]:
+            if vid is not None:
+                images_b64.extend(self._process_video_tensor(vid, video_sample_interval, max_frames_per_video))
+
+        if not images_b64:
+            return "No valid image or video input", "", []
+
+        # build OpenAI multimodal content
+        content = [{"type": "text", "text": prompt}]
+        for b64 in images_b64:
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+
+        body = {
+            "model": "default",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": content},
+            ],
+            "max_tokens": int(max_tokens),
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "stream": False,
+        }
+        try:
+            import socket as _sk, http.client as _hc
+            from urllib.parse import urlparse as _up
+            u = _up(_m.NInferManager.base_url())
+            mids = _m.NInferManager.models()
+            if mids:
+                body["model"] = mids[0]
+            s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+            s.settimeout(600); s.setblocking(True)
+            s.connect((u.hostname, u.port or 80))
+            try:
+                conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+                conn.sock = s
+                conn.request("POST", u.path + "/chat/completions",
+                             body=_json.dumps(body).encode("utf-8"),
+                             headers={"Content-Type": "application/json"})
+                out = _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+            finally:
+                s.close()
+            text = out["choices"][0]["message"]["content"]
+            thinking = ""
+            prompt_list = [l.strip() for l in text.split("\n") if l.strip()]
+            return text, thinking, prompt_list
+        except Exception as e:
+            err = f"[BSAI NInfer reverse failed] {type(e).__name__}: {e} (is NInfer running?)"
             print(err)
             return err, "", []
 

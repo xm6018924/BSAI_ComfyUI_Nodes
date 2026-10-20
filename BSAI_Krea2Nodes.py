@@ -1,9 +1,14 @@
 """
-BSAI Krea 2 风格参考生图节点组
+BSAI Krea 2 风格参考生图节点组（Krea 3 语义对齐版）
 
 提供 BSAI Krea 2 Style Reference 和 BSAI Krea 2 Image 两个节点：
 - BSAI Krea 2 Style Reference: 将参考图通过 Krea2 CLIP vision 编码为风格条件
-- BSAI Krea 2 Image: 一体化生图节点（模型+提示词+2个风格参考+采样+VAE解码）
+- BSAI Krea 2 Image: 一体化生图节点（模型+提示词+最多8个风格参考+采样+VAE解码）
+
+升级说明（ComfyUI 0.41 对齐）：
+  官方 Krea 3 Image 支持"一个节点内文生图 + 局部编辑、最多 8 张参考图"。
+  本节点将内置风格参考从 2 路扩展为 8 路（style_image_1~8 + 各自 strength/level），
+  与官方 Krea 3 的 8 张参考图语义对齐；原有 1/2 路签名不变，旧工作流完全兼容。
 
 style_reference 端口兼容：
   • BSAI Krea 2 Style Reference 的 CONDITIONING 输出
@@ -24,6 +29,9 @@ import io
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 最多 8 路风格参考（对齐官方 Krea 3 Image 的 8 张参考图上限）
+KREA_MAX_STYLE_IMAGES = 8
 
 # ============================================================================
 # Helper: 从 URL 下载图片为 tensor
@@ -245,15 +253,35 @@ class BSAI_Krea2StyleReference:
 # ============================================================================
 
 class BSAI_Krea2Image:
-    """BSAI Krea 2 一体化生图节点。
+    """BSAI Krea 2 一体化生图节点（Krea 3 语义对齐：最多 8 张风格参考图）。
 
-    接收：模型、CLIP、VAE、正面/负面提示词、2个可选风格参考图（含strength）、
+    接收：模型、CLIP、VAE、正面/负面提示词、最多 8 个可选风格参考图（含各自 strength/level）、
           以及外部 style_reference（支持 CONDITIONING 或 KREA_STYLE_REF）。
     输出：最终图像。
     """
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional = {
+            "style_reference": ("CONDITIONING", {
+                "tooltip": "CONDITIONING style condition from the BSAI Krea 2 Style Reference node.",
+            }),
+            "krea_style_reference": ("KREA_STYLE_REF", {
+                "tooltip": "KREA_STYLE_REF output from the official Krea 2 Style Reference node (URL images are downloaded and encoded locally).",
+            }),
+        }
+        for i in range(1, KREA_MAX_STYLE_IMAGES + 1):
+            optional[f"style_image_{i}"] = ("IMAGE", {
+                "tooltip": f"Style reference image {i} of {KREA_MAX_STYLE_IMAGES} (Krea 3 style: up to 8 reference images).",
+            })
+            optional[f"style_strength_{i}"] = ("FLOAT", {
+                "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
+                "tooltip": f"Strength of style reference image {i}.",
+            })
+            optional[f"style_level_{i}"] = (["subtle", "balanced", "strong"], {
+                "default": "balanced",
+                "tooltip": f"Semantic style level of reference image {i}.",
+            })
         return {
             "required": {
                 "model": ("MODEL",),
@@ -280,26 +308,7 @@ class BSAI_Krea2Image:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             },
-            "optional": {
-                "style_image_1": ("IMAGE", {"tooltip": "First style reference image (e.g. a sci-fi city style)."}),
-                "style_strength_1": ("FLOAT", {
-                    "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
-                    "tooltip": "Strength of the first style reference image.",
-                }),
-                "style_level_1": (["subtle", "balanced", "strong"], {"default": "balanced"}),
-                "style_image_2": ("IMAGE", {"tooltip": "Second style reference image (e.g. a character style)."}),
-                "style_strength_2": ("FLOAT", {
-                    "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
-                    "tooltip": "Strength of the second style reference image.",
-                }),
-                "style_level_2": (["subtle", "balanced", "strong"], {"default": "balanced"}),
-                "style_reference": ("CONDITIONING", {
-                    "tooltip": "CONDITIONING style condition from the BSAI Krea 2 Style Reference node.",
-                }),
-                "krea_style_reference": ("KREA_STYLE_REF", {
-                    "tooltip": "KREA_STYLE_REF output from the official Krea 2 Style Reference node (URL images are downloaded and encoded locally).",
-                }),
-            },
+            "optional": optional,
         }
 
     RETURN_TYPES = ("IMAGE",)
@@ -307,6 +316,12 @@ class BSAI_Krea2Image:
     FUNCTION = "generate"
     CATEGORY = "BSAI/Krea2"
     OUTPUT_NODE = True
+    DESCRIPTION = (
+        "BSAI Krea 2 all-in-one image generation node, aligned with the official Krea 3 "
+        "semantics: up to 8 style reference images, each with its own strength and level. "
+        "Also accepts CONDITIONING style references (BSAI Krea 2 Style Reference) and "
+        "official KREA_STYLE_REF chains (URL images are downloaded and encoded locally)."
+    )
 
     def generate(
         self,
@@ -318,6 +333,12 @@ class BSAI_Krea2Image:
         seed, denoise,
         style_image_1=None, style_strength_1=1.0, style_level_1="balanced",
         style_image_2=None, style_strength_2=1.0, style_level_2="balanced",
+        style_image_3=None, style_strength_3=1.0, style_level_3="balanced",
+        style_image_4=None, style_strength_4=1.0, style_level_4="balanced",
+        style_image_5=None, style_strength_5=1.0, style_level_5="balanced",
+        style_image_6=None, style_strength_6=1.0, style_level_6="balanced",
+        style_image_7=None, style_strength_7=1.0, style_level_7="balanced",
+        style_image_8=None, style_strength_8=1.0, style_level_8="balanced",
         style_reference=None,
         krea_style_reference=None,
     ):
@@ -337,11 +358,15 @@ class BSAI_Krea2Image:
             else:
                 logger.warning("[BSAI Krea2] krea_style_reference has an unknown format; ignoring.")
 
-        # 3) Process embedded style images
-        for ref_img, ref_strength, ref_level in [
-            (style_image_1, style_strength_1, style_level_1),
-            (style_image_2, style_strength_2, style_level_2),
-        ]:
+        # 3) Process embedded style images (up to 8, Krea 3 semantics)
+        ref_pairs = []
+        for i in range(1, KREA_MAX_STYLE_IMAGES + 1):
+            img = locals().get(f"style_image_{i}")
+            strength = locals().get(f"style_strength_{i}", 1.0) or 1.0
+            level = locals().get(f"style_level_{i}", "balanced") or "balanced"
+            if img is not None:
+                ref_pairs.append((img, strength, level))
+        for ref_img, ref_strength, ref_level in ref_pairs:
             if ref_img is not None:
                 resized = _resize_image_for_vision(ref_img, 384)
                 instruction = STYLE_INSTRUCTIONS.get(ref_level, STYLE_INSTRUCTIONS["balanced"])

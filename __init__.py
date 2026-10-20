@@ -25,6 +25,7 @@ modules = [
     "BSAI_MergeImages",
     "BSAI_NineGridMosaic",
     "BSAI_Krea2Nodes",
+    "BSAI_NewFeatureNodes",
     "BSAI_ComfyUI_lingbot_video",
     "BSAI_DrawTextOverlay",
 ]

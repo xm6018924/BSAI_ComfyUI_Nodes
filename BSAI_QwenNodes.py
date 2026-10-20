@@ -568,6 +568,36 @@ def _bsai_list_llm_files():
         return []
 
 
+def _bsai_ninfer_model_list():
+    """NInfer 模型下拉：models/LLM 下所有 *.ninfer 相对路径。"""
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        if not os.path.exists(_p):
+            return []
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        return [rel for rel, _abs in _m.NInferManager.list_models()]
+    except Exception:
+        return []
+
+
+def _bsai_nemotron_model_list():
+    """Nemotron 模型下拉：models/LLM/Nemotron 下所有非 mmproj 的 *.gguf。"""
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        if not os.path.exists(_p):
+            return []
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        return [rel for rel, _abs, kind in _m.NemotronManager.list_models() if kind == "model"]
+    except Exception:
+        return []
+
+
 def _bsai_check_mtp_layer(model_path):
     """Check if a GGUF file contains MTP/NextN prediction layer metadata."""
     import struct as _struct
@@ -907,6 +937,130 @@ class _BSAI_StrataHTTPBackend:
         pass
 
 
+# BSAI NInfer HTTP backend: same Llama-mimicking interface, but talks to the
+# local NInfer engine (AI蛮子 plugin) whose port is managed dynamically by
+# NInferManager inside BSAI-LLM-Strata/strata_manager.py.
+# ---------------------------------------------------------------------------
+class _BSAI_NInferHTTPBackend:
+    """Mimics the subset of Llama used by BSAI_QwenPromptInference, routed to
+    the local NInfer reverse engine (auto-started, dynamic port 808x)."""
+
+    def __init__(self, n_ctx=32768, quant_label=None, ninfer_model="(Auto — first model found)"):
+        self.n_ctx = n_ctx
+        self.quant_label = quant_label
+        self.ninfer_model = None if str(ninfer_model).startswith("(Auto") else str(ninfer_model)
+        self._mgr = None
+
+    def _manager(self):
+        if self._mgr is None:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+            _m = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_m)
+            self._mgr = _m.NInferManager
+        return self._mgr
+
+    def create_chat_completion(self, messages=None, **kwargs):
+        mgr = self._manager()
+        ok, msg = mgr.ensure_running(model_path=self.ninfer_model)
+        if not ok:
+            raise ConnectionError(f"NInfer engine failed to start: {msg}")
+        import json as _json
+        import socket as _sk, http.client as _hc
+        from urllib.parse import urlparse as _up
+
+        max_tokens_val = kwargs.get("max_tokens", 4096)
+        payload = {
+            "messages": messages or [],
+            "max_tokens": max_tokens_val,
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "stream": False,
+        }
+        mids = mgr.models()
+        payload["model"] = mids[0] if mids else "default"
+        data = _json.dumps(payload).encode("utf-8")
+        u = _up(mgr.base_url())
+
+        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+        s.settimeout(600); s.setblocking(True)
+        s.connect((u.hostname, u.port or 80))
+        try:
+            conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+            conn.sock = s
+            conn.request("POST", u.path + "/chat/completions", body=data,
+                         headers={"Content-Type": "application/json"})
+            return _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+        finally:
+            s.close()
+
+    def close(self):
+        pass
+
+
+# BSAI Nemotron HTTP backend: same Llama-mimicking interface, routed to the
+# local Nemotron 3.5 Bolt (llama.cpp @127.0.0.1:8085), auto-started by
+# NemotronManager inside BSAI-LLM-Strata/strata_manager.py.
+# ---------------------------------------------------------------------------
+class _BSAI_NemotronHTTPBackend:
+    """Mimics the subset of Llama used by BSAI_QwenPromptInference, routed to
+    the local Nemotron 3.5 Bolt engine (llama.cpp, OpenAI-compatible @8085)."""
+
+    def __init__(self, n_ctx=32768, quant_label=None):
+        self.n_ctx = n_ctx
+        self.quant_label = quant_label
+        self._mgr = None
+
+    def _manager(self):
+        if self._mgr is None:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+            _m = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_m)
+            self._mgr = _m.NemotronManager
+        return self._mgr
+
+    def create_chat_completion(self, messages=None, **kwargs):
+        mgr = self._manager()
+        ok, msg = mgr.ensure_running()
+        if not ok:
+            raise ConnectionError(f"Nemotron engine failed to start: {msg}")
+        import json as _json
+        import socket as _sk, http.client as _hc
+        from urllib.parse import urlparse as _up
+
+        max_tokens_val = kwargs.get("max_tokens", 4096)
+        payload = {
+            "messages": messages or [],
+            "max_tokens": max_tokens_val,
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "stream": False,
+        }
+        mids = mgr.models()
+        payload["model"] = mids[0] if mids else "Nemotron-3.5-Bolt-74B-A9B"
+        data = _json.dumps(payload).encode("utf-8")
+        u = _up(mgr.base_url())
+
+        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+        s.settimeout(600); s.setblocking(True)
+        s.connect((u.hostname, u.port or 80))
+        try:
+            conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+            conn.sock = s
+            conn.request("POST", u.path + "/chat/completions", body=data,
+                         headers={"Content-Type": "application/json",
+                                  "Authorization": "Bearer strata"})
+            return _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+        finally:
+            s.close()
+
+    def close(self):
+        pass
+
+
 class BSAI_QwenModelLoader:
     @classmethod
     def INPUT_TYPES(s):
@@ -922,9 +1076,9 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata backend does not need model/mmproj; it calls the local Strata service over HTTP"}),
+                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the AI蛮子 ninfer-serve engine on a dynamic free port (8081+)"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -932,6 +1086,12 @@ class BSAI_QwenModelLoader:
                 "context_length": ("INT", {"default": 32768, "min": 1024, "max": 327680, "step": 256}),
                 "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
                 "strata_quant": (strata_quants, {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level; Auto picks the fastest"}),
+                "ninfer_model": (["(Auto — first model found)"] + _bsai_ninfer_model_list(),
+                                 {"default": "(Auto — first model found)",
+                                  "tooltip": "NInfer backend only: which *.ninfer model to load (models/LLM). Changing it restarts the NInfer engine."}),
+                "nemotron_model": (["(Auto — first model found)"] + _bsai_nemotron_model_list(),
+                                 {"default": "(Auto — first model found)",
+                                  "tooltip": "Nemotron backend only: which GGUF model to load (models/LLM/Nemotron, excludes mmproj). Changing it restarts llama.cpp."}),
             }
         }
 
@@ -940,7 +1100,7 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)"):
+    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)"):
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
         if str(backend).startswith("BSAI Strata"):
             # Parse quant label
@@ -996,6 +1156,42 @@ class BSAI_QwenModelLoader:
                 pass
 
             return (_BSAI_StrataHTTPBackend(n_ctx=int(context_length), quant_label=quant),)
+
+        # --- Nemotron HTTP backend: talk to the local llama.cpp engine ---
+        if str(backend).startswith("BSAI Nemotron"):
+            try:
+                import importlib.util as _ilu
+                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                _mp = None if str(nemotron_model).startswith("(Auto") else str(nemotron_model)
+                ok, msg = _m.NemotronManager.ensure_running(model_path=_mp)
+                if not ok:
+                    raise RuntimeError(f"Nemotron engine failed to start: {msg}")
+                print(f"[BSAI] Nemotron service ready @{_m.NemotronManager.base_url()}")
+            except Exception as e:
+                print(f"[BSAI] Auto-start Nemotron failed: {e}")
+                print("[BSAI] 请确认 llama.cpp 已放入 BSAI-LLM-Strata/Nemotron/llama.cpp/，"
+                      "模型已下载到 models/LLM/Nemotron/")
+            return (_BSAI_NemotronHTTPBackend(n_ctx=int(context_length)),)
+
+        # --- NInfer HTTP backend: talk to the AI蛮子 ninfer-serve engine ---
+        if str(backend).startswith("BSAI NInfer"):
+            try:
+                import importlib.util as _ilu
+                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                ok, msg = _m.NInferManager.ensure_running()
+                if not ok:
+                    raise RuntimeError(f"NInfer engine failed to start: {msg}")
+                print(f"[BSAI] NInfer service ready @{_m.NInferManager.base_url()}")
+            except Exception as e:
+                print(f"[BSAI] Auto-start NInfer failed: {e}")
+                print("[BSAI] Please check BSAI-FLUX3-ComfyUI/engine/ and *.ninfer model in models/LLM")
+            return (_BSAI_NInferHTTPBackend(n_ctx=int(context_length), ninfer_model=ninfer_model),)
 
         if model_file is None or str(model_file).startswith("(place models"):
             raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
@@ -1191,6 +1387,173 @@ def _bsai_get_video_path(video_input):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Audio helpers: ComfyUI AUDIO dict -> numpy mono / base64 wav, plus offline
+# Whisper large-v3 ASR across the multi-GPU package:
+#   - "auto"      -> persistent subprocess worker running in python_embeded
+#                    (torch+xpu) so Whisper lives on the idle Intel iGPU and
+#                    never touches the 5090 that hosts the LLM.
+#   - "cuda"      -> inline fp16 on the local 5090 (fast but uses ~3GB VRAM)
+#   - "cpu"       -> inline fp32 on CPU (slow, zero GPU use)
+# ---------------------------------------------------------------------------
+_BSAI_WHISPER_CACHE = {}
+_BSAI_WHISPER_WORKER = None
+
+
+def _bsai_comfy_audio_to_np(audio_input):
+    """ComfyUI AUDIO dict {"waveform": tensor, "sample_rate": int} -> (np.float32 mono, sr) or (None, None)."""
+    try:
+        if not isinstance(audio_input, dict):
+            return None, None
+        wf = audio_input.get("waveform")
+        if wf is None:
+            return None, None
+        sr = int(audio_input.get("sample_rate", 16000) or 16000)
+        a = wf.detach().cpu().float()
+        if a.ndim == 3:
+            a = a[0]  # take first item in batch
+        if a.ndim == 2:
+            # channels-first (C,T) vs channels-last (T,C): T is the longer dim
+            if a.shape[0] >= a.shape[1]:
+                a = a.mean(dim=1)
+            else:
+                a = a.mean(dim=0)
+        a = a.numpy()
+        if a.ndim != 1:
+            a = a.reshape(-1)
+        return a.astype(np.float32), sr
+    except Exception:
+        return None, None
+
+
+def _bsai_audio_to_temp_wav(audio_input, temp_dir):
+    """ComfyUI AUDIO dict -> temp wav path (for the XPU worker), or None."""
+    audio, sr = _bsai_comfy_audio_to_np(audio_input)
+    if audio is None:
+        return None
+    try:
+        import soundfile as sf
+        p = os.path.join(str(temp_dir), f"whisper_{int(time.time()*1000)}.wav")
+        sf.write(p, audio, int(sr))
+        return p
+    except Exception:
+        return None
+
+
+def _bsai_get_whisper_worker():
+    """Spawn (once) the persistent XPU whisper worker in python_embeded.
+    The worker warms up its XPU JIT on first launch (can take minutes), then
+    stays resident and answers stdin JSON requests line by line."""
+    global _BSAI_WHISPER_WORKER
+    if _BSAI_WHISPER_WORKER is not None and _BSAI_WHISPER_WORKER.poll() is None:
+        return _BSAI_WHISPER_WORKER
+    import subprocess
+    import sys as _sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.realpath(os.path.join(here, "..", "..", "..", ".."))
+    xpu_py = os.path.join(repo_root, "python_embeded", "python.exe")
+    if not os.path.exists(xpu_py):
+        xpu_py = _sys.executable
+    worker_script = os.path.join(here, "_bsai_whisper_worker.py")
+    if not os.path.exists(worker_script):
+        raise FileNotFoundError(f"Whisper worker script not found: {worker_script}")
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    p = subprocess.Popen(
+        [xpu_py, "-X", "utf8", worker_script],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, encoding="utf-8", bufsize=1, env=env,
+    )
+    _BSAI_WHISPER_WORKER = p
+    return p
+
+
+def _bsai_whisper_via_worker(wav_path):
+    import json as _json
+    p = _bsai_get_whisper_worker()
+    p.stdin.write(_json.dumps({"wav": wav_path}) + "\n")
+    p.stdin.flush()
+    line = p.stdout.readline()
+    if not line:
+        raise RuntimeError("Whisper worker exited unexpectedly while transcribing.")
+    resp = _json.loads(line)
+    if not resp.get("ok"):
+        raise RuntimeError(resp.get("error", "Whisper worker transcription failed."))
+    return resp.get("text", "")
+
+
+def _bsai_whisper_inline(audio, sr, device):
+    """Inline whisper transcription inside the ComfyUI process (CUDA fp16 / CPU fp32)."""
+    global _BSAI_WHISPER_CACHE
+    import torch as _t
+    import warnings as _w
+    _w.filterwarnings("ignore")
+    if "proc" not in _BSAI_WHISPER_CACHE or _BSAI_WHISPER_CACHE.get("dev") != device:
+        from transformers import WhisperProcessor, WhisperForConditionalGeneration
+        md = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "models", "whisper", "whisper-large-v3"))
+        if not os.path.isdir(md):
+            raise FileNotFoundError(f"Whisper model directory not found: {md}")
+        proc = WhisperProcessor.from_pretrained(md)
+        if device == "cuda" and not _t.cuda.is_available():
+            device = "cpu"
+        dtype = _t.float16 if device == "cuda" else _t.float32
+        mdl = WhisperForConditionalGeneration.from_pretrained(md, torch_dtype=dtype).to(device).eval()
+        _BSAI_WHISPER_CACHE.update(proc=proc, mdl=mdl, dev=device)
+    proc, mdl, dev = _BSAI_WHISPER_CACHE["proc"], _BSAI_WHISPER_CACHE["mdl"], _BSAI_WHISPER_CACHE["dev"]
+    if sr != 16000:
+        import librosa
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+    win = 30 * 16000
+    texts = []
+    for i in range(0, len(audio), win):
+        chunk = audio[i:i + win]
+        if len(chunk) < 8000:
+            continue
+        inputs = proc(chunk, sampling_rate=16000, return_tensors="pt")
+        feat = inputs.input_features.to(dev).to(mdl.dtype)
+        with _t.no_grad():
+            pred = mdl.generate(feat)
+        texts.append(proc.batch_decode(pred, skip_special_tokens=True)[0].strip())
+    return " ".join(t for t in texts if t)
+
+
+def _bsai_whisper_transcribe(audio_input, device_pref, temp_dir):
+    """Dispatch ASR by device preference:
+       auto -> persistent XPU (Intel iGPU) worker; cuda -> inline fp16 on 5090; cpu -> inline CPU."""
+    pref = str(device_pref)
+    if pref.startswith("本机GPU"):
+        audio, sr = _bsai_comfy_audio_to_np(audio_input)
+        if audio is None:
+            return ""
+        return _bsai_whisper_inline(audio, sr, "cuda")
+    if pref.startswith("CPU"):
+        audio, sr = _bsai_comfy_audio_to_np(audio_input)
+        if audio is None:
+            return ""
+        return _bsai_whisper_inline(audio, sr, "cpu")
+    # auto: XPU worker on the idle Intel iGPU
+    wav_path = _bsai_audio_to_temp_wav(audio_input, temp_dir)
+    if not wav_path:
+        return ""
+    return _bsai_whisper_via_worker(wav_path)
+
+
+def _bsai_comfy_audio_to_wav_b64(audio_input):
+    """ComfyUI AUDIO dict -> base64-encoded WAV string for OpenAI input_audio content, or None."""
+    audio, sr = _bsai_comfy_audio_to_np(audio_input)
+    if audio is None:
+        return None
+    try:
+        import io
+        import base64 as _b64
+        import soundfile as sf
+        buf = io.BytesIO()
+        sf.write(buf, audio, int(sr), format="WAV")
+        return _b64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
 class BSAI_QwenMultimodalInference:
     @classmethod
     def INPUT_TYPES(s):
@@ -1209,6 +1572,8 @@ class BSAI_QwenMultimodalInference:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
                 "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
+                "audio_mode": (["本地ASR转写（推荐：兼容所有模型，提取字幕）", "原生音频模态（input_audio：需Omni/音频模型）"], {"default": "本地ASR转写（推荐：兼容所有模型，提取字幕）", "tooltip": "本地ASR转写：用本地Whisper large-v3把音频转成字幕文本注入prompt，兼容所有模型；原生音频模态：把音频作为input_audio直接发给后端，仅支持Qwen2.5-Omni等原生音频模型。"}),
+                "whisper_device": (["自动（Intel核显XPU优先，不占5090显存）", "本机GPU CUDA（5090，最快但占~3GB显存）", "CPU（最慢，零GPU占用）"], {"default": "自动（Intel核显XPU优先，不占5090显存）", "tooltip": "ASR运行位置：自动优先用闲置的Intel核显跑常驻worker（不占5090）；本机GPU直接在5090上fp16跑（最快但占3GB显存）；CPU兜底。"}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
@@ -1219,6 +1584,9 @@ class BSAI_QwenMultimodalInference:
                 "video_1": (IO.VIDEO,),
                 "video_2": (IO.VIDEO,),
                 "video_3": (IO.VIDEO,),
+                "audio_1": (IO.AUDIO,),
+                "audio_2": (IO.AUDIO,),
+                "audio_3": (IO.AUDIO,),
             }
         }
 
@@ -1227,7 +1595,7 @@ class BSAI_QwenMultimodalInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None):
+    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
         llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -1257,6 +1625,25 @@ class BSAI_QwenMultimodalInference:
                     img.save(temp_path, quality=95)
                     content_items.append({"type": "image_url", "image_url": {"url": Path(str(temp_path)).as_uri()}})
 
+        # Process audio inputs: local Whisper ASR transcription (default) or
+        # raw input_audio passthrough for native audio-modal (Omni) models.
+        native_audio = str(audio_mode).startswith("原生")
+        for idx, audio_in in enumerate([audio_1, audio_2, audio_3], 1):
+            if audio_in is None:
+                continue
+            if native_audio:
+                b64 = _bsai_comfy_audio_to_wav_b64(audio_in)
+                if b64:
+                    content_items.append({"type": "input_audio", "input_audio": {"data": b64, "format": "wav"}})
+            else:
+                try:
+                    transcript = _bsai_whisper_transcribe(audio_in, whisper_device, temp_dir)
+                    if transcript:
+                        content_items.append({"type": "text", "text": f"[音频{idx}转写字幕]\n{transcript}"})
+                except Exception as e:
+                    import logging as _lg
+                    _lg.warning(f"[BSAI] audio_{idx} ASR transcription failed: {e}")
+
         # Text prompt
         prompt_text = (text or "").strip()
         if not prompt_text and not content_items:
@@ -1264,9 +1651,9 @@ class BSAI_QwenMultimodalInference:
         if prompt_text:
             content_items.append({"type": "text", "text": prompt_text})
 
-        # If we are on the Strata HTTP backend, convert local file:// image URLs to
-        # base64 data URLs (OpenAI-compatible / Strata mmproj cannot read local paths).
-        if isinstance(llm, _BSAI_StrataHTTPBackend):
+        # If we are on the Strata/NInfer HTTP backend, convert local file:// image
+        # URLs to base64 data URLs (OpenAI-compatible servers cannot read local paths).
+        if isinstance(llm, (_BSAI_StrataHTTPBackend, _BSAI_NInferHTTPBackend)):
             import base64 as _b64
             converted = []
             for item in content_items:
