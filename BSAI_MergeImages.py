@@ -21,9 +21,7 @@ class BSAI_MergeImages:
         return {
             "required": {
                 "images": ("IMAGE",),
-                # 后 4 项为旧版标签：兼容老工作流 JSON 保存值
-                "layout": (["Auto", "2x2 Grid", "2x3 Grid", "3x2 Grid", "3x3 Grid",
-                            "2x2 (4宫格)", "2x3 (6宫格)", "3x2 (6宫格)", "3x3 (9宫格)", "Custom"],
+                "layout": (["Auto", "2x2 Grid", "2x3 Grid", "3x2 Grid", "3x3 Grid", "Custom"],
                            {"default": "Auto", "tooltip": "Image grid layout"}),
             },
             "optional": {
@@ -227,6 +225,14 @@ class BSAI_MergeImages:
             layout = layout[0]
         else:
             layout = "Auto"
+        # Normalize legacy Chinese values saved in old workflows
+        _LAYOUT_LEGACY = {
+            "2x2 (4宫格)": "2x2 Grid",
+            "2x3 (6宫格)": "2x3 Grid",
+            "3x2 (6宫格)": "3x2 Grid",
+            "3x3 (9宫格)": "3x3 Grid",
+        }
+        layout = _LAYOUT_LEGACY.get(layout, layout)
 
         if isinstance(custom_rows, (list, tuple)) and len(custom_rows) > 0:
             custom_rows = custom_rows[0]

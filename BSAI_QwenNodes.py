@@ -1084,7 +1084,7 @@ class BSAI_QwenModelLoader:
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
                 "enable_thinking": ("BOOLEAN", {"default": False}),
                 "context_length": ("INT", {"default": 32768, "min": -1, "max": 327680, "step": 256,
-                                            "tooltip": "上下文长度; -1 = 自动(32768), 兼容旧工作流保存的 -1"}),
+                                            "tooltip": "Context length; -1 = auto (32768), legacy workflows may save -1"}),
                 "gpu_layers": ("INT", {"default": -1, "min": -1, "max": 9999, "step": 1}),
                 "strata_quant": (strata_quants, {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level; Auto picks the fastest"}),
                 "ninfer_model": (["(Auto — first model found)"] + _bsai_ninfer_model_list(),

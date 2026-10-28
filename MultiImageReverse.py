@@ -120,9 +120,7 @@ class BSAI_MultiImageVideoReverse:
                 "backend": (["Ollama (local 11434)", "BSAI Strata (Qwen3.8-Flash-Next @8080)", "BSAI Nemotron (llama.cpp @8085)", "BSAI NInfer (local reverse @808x)"],
                             {"default": "Ollama (local 11434)",
                              "tooltip": "Inference backend: Ollama, BSAI Strata HTTP, or BSAI NInfer (local ninfer engine, dynamic free port)"}),
-                # 后 5 项为旧版标签：兼容老工作流 JSON 保存值，multi_media_reverse() 入口统一映射
-                "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)",
-                                  "Auto (自动适配)", "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"],
+                "strata_quant": (["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"],
                             {"default": "Auto (auto)", "tooltip": "Strata backend only: select quantization level, Auto picks the fastest"}),
                 "ninfer_model": (["(Auto — first model found)"] + _mir_ninfer_model_list(),
                             {"default": "(Auto — first model found)",
