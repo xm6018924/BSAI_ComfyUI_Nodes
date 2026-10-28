@@ -1076,7 +1076,7 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
                           {"default": "llama.cpp (local GGUF)",
                            "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+)"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
@@ -1634,9 +1634,9 @@ class BSAI_QwenMultimodalInference:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
                 "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
-                "audio_mode": (["Local ASR transcription", "Native audio modality"], {"default": "Local ASR transcription", "tooltip": "Local ASR: transcribes audio with Whisper large-v3 into subtitle text injected into prompt (works with all models). Native audio: sends audio as input_audio directly to backend (Qwen2.5-Omni etc.)."}),
-                "whisper_device": (["Auto (Intel XPU preferred)", "GPU CUDA (fastest)", "CPU (no GPU)"], {"default": "Auto (Intel XPU preferred)", "tooltip": "ASR device: Auto prefers idle Intel iGPU for the resident worker; GPU runs fp16 on CUDA (fastest, ~3GB VRAM); CPU fallback."}),
-                "whisper_language": (["Chinese (zh)", "Auto detect", "English (en)", "Japanese (ja)", "Korean (ko)"], {"default": "Chinese (zh)", "tooltip": "ASR language: forcing zh for Chinese content reduces language-misdetection hallucination in long intros; Auto lets Whisper decide."}),
+                "audio_mode": (["Local ASR transcription", "Native audio modality", "本地ASR转写（推荐：兼容所有模型，提取字幕）", "原生音频模态（input_audio：需Omni/音频模型）"], {"default": "Local ASR transcription", "tooltip": "Local ASR: transcribes audio with Whisper large-v3 into subtitle text injected into prompt (works with all models). Native audio: sends audio as input_audio directly to backend (Qwen2.5-Omni etc.)."}),
+                "whisper_device": (["Auto (Intel XPU preferred)", "GPU CUDA (fastest)", "CPU (no GPU)", "自动（Intel核显XPU优先，不占5090显存）"], {"default": "Auto (Intel XPU preferred)", "tooltip": "ASR device: Auto prefers idle Intel iGPU for the resident worker; GPU runs fp16 on CUDA (fastest, ~3GB VRAM); CPU fallback."}),
+                "whisper_language": (["Chinese (zh)", "Auto detect", "English (en)", "Japanese (ja)", "Korean (ko)", "中文 (zh)", "自动检测"], {"default": "Chinese (zh)", "tooltip": "ASR language: forcing zh for Chinese content reduces language-misdetection hallucination in long intros; Auto lets Whisper decide."}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
