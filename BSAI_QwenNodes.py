@@ -157,8 +157,7 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
                 "loop": ("BOOLEAN", {"default": False}),
                 "resize_width": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
                 "resize_height": ("INT", {"default": 0, "min": 0, "max": 8192, "step": 1}),
-                # 后 2 项为旧版标签：兼容老工作流 JSON 保存值（仅作缓存键，行为不变）
-                "output_mode": (["full_video", "selected_frame", "完整视频", "选中单帧"], {"default": "full_video"}),
+                "output_mode": (["full_video", "selected_frame"], {"default": "full_video"}),
                 "frame_index": ("INT", {"default": 0, "min": 0, "max": 100000, "step": 1}),
             },
         }
@@ -1068,26 +1067,18 @@ class BSAI_QwenModelLoader:
     def INPUT_TYPES(s):
         all_files = _bsai_list_llm_files()
         model_list = [f for f in all_files if "mmproj" not in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin", ".pth", ".pt"]]
-        # "无" 为旧版哨兵标签：兼容老工作流 JSON 保存值
-        mmproj_list = ["None", "无"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
+        mmproj_list = ["None"] + [f for f in all_files if "mmproj" in f.lower() and os.path.splitext(f)[1].lower() in [".gguf", ".safetensors", ".bin"]]
 
         if not model_list:
-            # 第 2 项为旧版占位标签：兼容老工作流 JSON 保存值
-            model_list = ["(place models in models/LLM)", "（请把模型放到 models/LLM）"]
+            model_list = ["(place models in models/LLM)"]
 
-        # Strata quant options (兼容旧工作流保存的中文标签, load() 内统一映射)
-        strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)",
-                         "Auto (自动适配)", "Q2_0 (最快 / fastest)", "IQ2_XS (略好 / better)",
-                         "IQ3_XXS (更好 / good)", "IQ3_S (最好 / best quality)",
-                         # 后 4 项为 i18n 前本节点的旧版标签：兼容老工作流 JSON 保存值
-                         "Q2_0 (最快)", "IQ2_XS (略好)", "IQ3_XXS (更好)", "IQ3_S (最好)"]
+        strata_quants = ["Auto (auto)", "Q2_0 (fastest)", "IQ2_XS (slightly better)", "IQ3_XXS (better)", "IQ3_S (best)"]
 
         return {
             "required": {
-                # 第 2 项为旧版标签：兼容老工作流 JSON 保存值（同样落在 llama.cpp 分支）
-                "backend": (["llama.cpp (local GGUF)", "llama.cpp (本地加载GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the AI蛮子 ninfer-serve engine on a dynamic free port (8081+)"}),
+                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+)"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -1643,9 +1634,9 @@ class BSAI_QwenMultimodalInference:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
                 "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
-                "audio_mode": (["本地ASR转写（推荐：兼容所有模型，提取字幕）", "原生音频模态（input_audio：需Omni/音频模型）"], {"default": "本地ASR转写（推荐：兼容所有模型，提取字幕）", "tooltip": "本地ASR转写：用本地Whisper large-v3把音频转成字幕文本注入prompt，兼容所有模型；原生音频模态：把音频作为input_audio直接发给后端，仅支持Qwen2.5-Omni等原生音频模型。"}),
-                "whisper_device": (["自动（Intel核显XPU优先，不占5090显存）", "本机GPU CUDA（5090，最快但占~3GB显存）", "CPU（最慢，零GPU占用）"], {"default": "自动（Intel核显XPU优先，不占5090显存）", "tooltip": "ASR运行位置：自动优先用闲置的Intel核显跑常驻worker（不占5090）；本机GPU直接在5090上fp16跑（最快但占3GB显存）；CPU兜底。"}),
-                "whisper_language": (["中文 (zh)", "自动检测", "英语 (en)", "日语 (ja)", "韩语 (ko)"], {"default": "中文 (zh)", "tooltip": "ASR识别语言：歌曲/中文内容强制zh可消除语言误判型幻觉（长前奏纯音乐段自动检测常猜错语言产生乱码歌词）；选自动检测则由Whisper自行判断。"}),
+                "audio_mode": (["Local ASR transcription", "Native audio modality"], {"default": "Local ASR transcription", "tooltip": "Local ASR: transcribes audio with Whisper large-v3 into subtitle text injected into prompt (works with all models). Native audio: sends audio as input_audio directly to backend (Qwen2.5-Omni etc.)."}),
+                "whisper_device": (["Auto (Intel XPU preferred)", "GPU CUDA (fastest)", "CPU (no GPU)"], {"default": "Auto (Intel XPU preferred)", "tooltip": "ASR device: Auto prefers idle Intel iGPU for the resident worker; GPU runs fp16 on CUDA (fastest, ~3GB VRAM); CPU fallback."}),
+                "whisper_language": (["Chinese (zh)", "Auto detect", "English (en)", "Japanese (ja)", "Korean (ko)"], {"default": "Chinese (zh)", "tooltip": "ASR language: forcing zh for Chinese content reduces language-misdetection hallucination in long intros; Auto lets Whisper decide."}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
@@ -1667,7 +1658,25 @@ class BSAI_QwenMultimodalInference:
     FUNCTION = "run"
     CATEGORY = "BSAI"
 
-    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, whisper_language="中文 (zh)", image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
+    def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, whisper_language="Chinese (zh)", image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
+        # Legacy Chinese dropdown values → English (backward compat for old workflows)
+        _audio_map = {
+            "本地ASR转写（推荐：兼容所有模型，提取字幕）": "Local ASR transcription",
+            "原生音频模态（input_audio：需Omni/音频模型）": "Native audio modality",
+        }
+        _dev_map = {
+            "自动（Intel核显XPU优先，不占5090显存）": "Auto (Intel XPU preferred)",
+            "本机GPU CUDA（5090，最快但占~3GB显存）": "GPU CUDA (fastest)",
+            "CPU（最慢，零GPU占用）": "CPU (no GPU)",
+        }
+        _lang_map = {
+            "中文 (zh)": "Chinese (zh)", "自动检测": "Auto detect",
+            "英语 (en)": "English (en)", "日语 (ja)": "Japanese (ja)", "韩语 (ko)": "Korean (ko)",
+        }
+        audio_mode = _audio_map.get(audio_mode, audio_mode)
+        whisper_device = _dev_map.get(whisper_device, whisper_device)
+        whisper_language = _lang_map.get(whisper_language, whisper_language)
+
         llm = qwen_model
 
         if not hasattr(llm, 'create_chat_completion'):
@@ -1699,7 +1708,7 @@ class BSAI_QwenMultimodalInference:
 
         # Process audio inputs: local Whisper ASR transcription (default) or
         # raw input_audio passthrough for native audio-modal (Omni) models.
-        native_audio = str(audio_mode).startswith("原生")
+        native_audio = str(audio_mode).startswith("Native")
         for idx, audio_in in enumerate([audio_1, audio_2, audio_3], 1):
             if audio_in is None:
                 continue

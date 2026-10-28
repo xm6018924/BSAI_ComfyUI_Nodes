@@ -210,8 +210,7 @@ class BSAI_Krea2StyleReference:
                     "step": 0.05,
                     "tooltip": "Style reference strength. 0.0 = no influence, 1.0 = standard, 2.0 = very strong.",
                 }),
-                # 后 3 项为旧版标签：兼容老工作流 JSON 保存值
-                "style_level": (["subtle", "balanced", "strong", "轻微", "平衡", "强烈"], {
+                "style_level": (["subtle", "balanced", "strong"], {
                     "default": "balanced",
                     "tooltip": "Semantic style strength level, controlling how strongly the reference image influences the prompt.",
                 }),
@@ -284,8 +283,7 @@ class BSAI_Krea2Image:
                 "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
                 "tooltip": f"Strength of style reference image {i}.",
             })
-            # 后 3 项为旧版标签：兼容老工作流 JSON 保存值
-            optional[f"style_level_{i}"] = (["subtle", "balanced", "strong", "轻微", "平衡", "强烈"], {
+            optional[f"style_level_{i}"] = (["subtle", "balanced", "strong"], {
                 "default": "balanced",
                 "tooltip": f"Semantic style level of reference image {i}.",
             })
