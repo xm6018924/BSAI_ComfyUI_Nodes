@@ -1139,6 +1139,45 @@ class _BSAI_NemotronHTTPBackend:
         pass
 
 
+def _bsai_stop_all_http_engines(except_backend=None):
+    """Stop all BSAI HTTP LLM engines (Strata / NInfer / Nemotron / Flint)
+    so switching backends frees VRAM without restarting ComfyUI.
+
+    except_backend: the backend label currently being activated; its manager
+    is skipped to avoid stopping an engine we are about to (re)start.
+    """
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+    except Exception as e:
+        print(f"[BSAI] stop_all_engines: cannot load strata_manager: {e}")
+        return
+
+    except_backend = str(except_backend or "")
+    targets = [
+        ("BSAI Strata", _m.StrataManager),
+        ("BSAI NInfer", _m.NInferManager),
+        ("BSAI Nemotron", _m.NemotronManager),
+        ("BSAI Flint", _m.FlintManager),
+    ]
+    for label, mgr in targets:
+        if except_backend.startswith(label):
+            continue
+        try:
+            # Only stop if the engine is actually running (health check) —
+            # this avoids spurious logs when nothing was started.
+            h = mgr.health(timeout=0.6)
+            if h.get("ok"):
+                mgr.stop()
+                print(f"[BSAI] Auto-unloaded {label} engine (VRAM freed).")
+        except Exception as e:
+            # If health check fails, the engine is already down — nothing to do.
+            pass
+
+
 class BSAI_QwenModelLoader:
     @classmethod
     def INPUT_TYPES(s):
@@ -1186,6 +1225,9 @@ class BSAI_QwenModelLoader:
         ctx = int(context_length)
         if ctx < 1024:
             ctx = 32768
+        # --- Auto-unload: stop all other HTTP engines before starting the selected
+        # one, so switching models/backends frees VRAM without restarting ComfyUI.
+        _bsai_stop_all_http_engines(except_backend=backend)
         # --- Strata HTTP backend: skip llama.cpp loading entirely ---
         if str(backend).startswith("BSAI Strata"):
             # Parse quant label (含旧版中文标签映射)
