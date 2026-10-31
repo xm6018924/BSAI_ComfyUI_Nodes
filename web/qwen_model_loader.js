@@ -17,7 +17,8 @@ const BACKEND_WIDGET_GROUPS = {
   "llama.cpp (local GGUF)": COMMON_WIDGETS.concat(["model_family", "model_file", "mmproj", "gpu_layers"]),
   "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)": COMMON_WIDGETS.concat(["strata_quant"]),
   "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)": COMMON_WIDGETS.concat(["nemotron_model"]),
-  "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)": COMMON_WIDGETS.concat(["ninfer_model"]),
+  "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)": COMMON_WIDGETS.concat(["ninfer_model"]),
+  "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)": COMMON_WIDGETS.concat(["flint_model"]),
 };
 
 function setWidgetHidden(widget, hidden) {

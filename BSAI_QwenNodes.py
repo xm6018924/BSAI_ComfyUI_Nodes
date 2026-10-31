@@ -599,6 +599,21 @@ def _bsai_nemotron_model_list():
         return []
 
 
+def _bsai_flint_model_list():
+    """Flint 模型下拉：models/LLM/flint 下所有非 mmproj 的 *.gguf。"""
+    try:
+        import importlib.util as _ilu
+        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+        if not os.path.exists(_p):
+            return []
+        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+        _m = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_m)
+        return [rel for rel, _abs in _m.FlintManager.list_models()]
+    except Exception:
+        return []
+
+
 def _bsai_check_mtp_layer(model_path):
     """Check if a GGUF file contains MTP/NextN prediction layer metadata."""
     import struct as _struct
@@ -1000,6 +1015,68 @@ class _BSAI_NInferHTTPBackend:
         pass
 
 
+# BSAI Flint HTTP backend: same Llama-mimicking interface, routed to the
+# local Flint 40B engine (llama.cpp @127.0.0.1:8082), auto-started by
+# FlintManager inside BSAI-LLM-Strata/strata_manager.py.
+# ---------------------------------------------------------------------------
+class _BSAI_FlintHTTPBackend:
+    """Mimics the subset of Llama used by BSAI_QwenPromptInference, routed to
+    the local Flint 40B engine (llama.cpp, OpenAI-compatible @8082)."""
+
+    def __init__(self, n_ctx=32768, quant_label=None, flint_model="(Auto — first model found)"):
+        self.n_ctx = n_ctx
+        self.quant_label = quant_label
+        self.flint_model = None if str(flint_model).startswith("(Auto") else str(flint_model)
+        self._mgr = None
+
+    def _manager(self):
+        if self._mgr is None:
+            import importlib.util as _ilu
+            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+            _m = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_m)
+            self._mgr = _m.FlintManager
+        return self._mgr
+
+    def create_chat_completion(self, messages=None, **kwargs):
+        mgr = self._manager()
+        ok, msg = mgr.ensure_running(model_path=self.flint_model)
+        if not ok:
+            raise ConnectionError(f"Flint engine failed to start: {msg}")
+        import json as _json
+        import socket as _sk, http.client as _hc
+        from urllib.parse import urlparse as _up
+
+        max_tokens_val = kwargs.get("max_tokens", 4096)
+        payload = {
+            "messages": messages or [],
+            "max_tokens": max_tokens_val,
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "stream": False,
+        }
+        mids = mgr.models()
+        payload["model"] = mids[0] if mids else "Flint-40B"
+        data = _json.dumps(payload).encode("utf-8")
+        u = _up(mgr.base_url())
+
+        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+        s.settimeout(600); s.setblocking(True)
+        s.connect((u.hostname, u.port or 80))
+        try:
+            conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+            conn.sock = s
+            conn.request("POST", u.path + "/chat/completions", body=data,
+                         headers={"Content-Type": "application/json"})
+            return _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+        finally:
+            s.close()
+
+    def close(self):
+        pass
+
+
 # BSAI Nemotron HTTP backend: same Llama-mimicking interface, routed to the
 # local Nemotron 3.5 Bolt (llama.cpp @127.0.0.1:8085), auto-started by
 # NemotronManager inside BSAI-LLM-Strata/strata_manager.py.
@@ -1076,9 +1153,9 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+)"}),
+                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+); Flint calls the local llama.cpp Flint-40B engine on 8082"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -1093,6 +1170,9 @@ class BSAI_QwenModelLoader:
                 "nemotron_model": (["(Auto — first model found)"] + _bsai_nemotron_model_list(),
                                  {"default": "(Auto — first model found)",
                                   "tooltip": "Nemotron backend only: which GGUF model to load (models/LLM/Nemotron, excludes mmproj). Changing it restarts llama.cpp."}),
+                "flint_model": (["(Auto — first model found)"] + _bsai_flint_model_list(),
+                                 {"default": "(Auto — first model found)",
+                                  "tooltip": "Flint backend only: which GGUF model to load (models/LLM/flint). Changing it restarts the Flint llama.cpp engine."}),
             }
         }
 
@@ -1101,7 +1181,7 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)"):
+    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)", flint_model="(Auto — first model found)"):
         # 兼容旧工作流: context_length=-1 (旧版 auto 语义) -> 默认 32768
         ctx = int(context_length)
         if ctx < 1024:
@@ -1207,6 +1287,25 @@ class BSAI_QwenModelLoader:
                 print(f"[BSAI] Auto-start NInfer failed: {e}")
                 print("[BSAI] Please check BSAI-FLUX3-ComfyUI/engine/ and *.ninfer model in models/LLM")
             return (_BSAI_NInferHTTPBackend(n_ctx=ctx, ninfer_model=ninfer_model),)
+
+        # --- Flint HTTP backend: talk to the local Flint 40B llama.cpp engine ---
+        if str(backend).startswith("BSAI Flint"):
+            try:
+                import importlib.util as _ilu
+                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
+                _m = _ilu.module_from_spec(_spec)
+                _spec.loader.exec_module(_m)
+                _fp = None if str(flint_model).startswith("(Auto") else str(flint_model)
+                ok, msg = _m.FlintManager.ensure_running(model_path=_fp)
+                if not ok:
+                    raise RuntimeError(f"Flint engine failed to start: {msg}")
+                print(f"[BSAI] Flint service ready @{_m.FlintManager.base_url()}")
+            except Exception as e:
+                print(f"[BSAI] Auto-start Flint failed: {e}")
+                print("[BSAI] 请确认 llama-server.exe 已就位（BSAI-LLM-Strata/flint/llama.cpp/ 或整合包根 BSAI-llama.cpp/），"
+                      "模型已下载到 models/LLM/flint/")
+            return (_BSAI_FlintHTTPBackend(n_ctx=ctx, flint_model=flint_model),)
 
         if model_file is None or str(model_file).startswith("(place models") or str(model_file).startswith("（请把模型放到"):
             raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
