@@ -1153,9 +1153,9 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)", "BSAI NInfer HTTP (本地反推 @127.0.0.1:808x)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+); Flint calls the local llama.cpp Flint-40B engine on 8082"}),
+                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+); Flint calls the local llama.cpp Flint-40B engine on 8082. (旧版中文标签保留以兼容已有工作流)"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -1846,13 +1846,25 @@ class BSAI_QwenMultimodalInference:
         if prompt_text:
             content_items.append({"type": "text", "text": prompt_text})
 
-        # If we are on the Strata/NInfer HTTP backend, convert local file:// image
-        # URLs to base64 data URLs (OpenAI-compatible servers cannot read local paths).
-        if isinstance(llm, (_BSAI_StrataHTTPBackend, _BSAI_NInferHTTPBackend)):
+        # All HTTP backends need local file:// image URLs converted to base64
+        # data URLs (OpenAI-compatible servers cannot read local paths).
+        # Text-only backends (Flint, Nemotron) cannot process images, so strip
+        # image content items and keep only text to avoid server errors.
+        _HTTP_BACKENDS = (_BSAI_StrataHTTPBackend, _BSAI_NInferHTTPBackend,
+                          _BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend)
+        _TEXT_ONLY_BACKENDS = (_BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend)
+
+        if isinstance(llm, _HTTP_BACKENDS):
             import base64 as _b64
+            text_only = isinstance(llm, _TEXT_ONLY_BACKENDS)
             converted = []
             for item in content_items:
                 if item.get("type") == "image_url":
+                    if text_only:
+                        # Flint / Nemotron are text-only: drop image inputs.
+                        import logging
+                        logging.warning("[BSAI] 当前后端为纯文本模型（Flint/Nemotron），图像输入已自动忽略。")
+                        continue
                     url = item["image_url"]["url"]
                     if url.startswith("file://"):
                         try:
@@ -1869,7 +1881,7 @@ class BSAI_QwenMultimodalInference:
                         except Exception as e:
                             import logging
                             logging.warning(f"[BSAI] Failed to convert image to base64: {e}, url={url}")
-                            pass
+                            continue
                 converted.append(item)
             content_items = converted
 
