@@ -1306,7 +1306,7 @@ class BSAI_QwenModelLoader:
             "required": {
                 "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)", "BSAI DeepSeek HTTP (DeepSeek-V4.1-Flash @127.0.0.1:8083)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata(8080)/Nemotron(8085)/NInfer(8081+)/Flint(8082)/DeepSeek(8083) 均为本地引擎, 选中后自动拉起。"}),
+                           "tooltip": "Strata(8080)/Nemotron(8085)/NInfer(8081+)/Flint(8082)/DeepSeek(8083) are all local engines; the selected one is started automatically."}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -1326,7 +1326,7 @@ class BSAI_QwenModelLoader:
                                   "tooltip": "Flint backend only: which GGUF model to load (models/LLM/flint). Changing it restarts the Flint llama.cpp engine."}),
                 "deepseek_model": (["(Auto — detected build)"] + _bsai_deepseek_model_list(),
                                    {"default": "(Auto — detected build)",
-                                    "tooltip": "DeepSeek backend only: which build to load (models/LLM/DeepSeek). Auto 按 shard 自动识别 IQ2_XXS/IQ2_XS/IQ1_M/UD-Q8_K_XL。"}),
+                                    "tooltip": "DeepSeek backend only: which build to load (models/LLM/DeepSeek). Auto detects it from the shard names (IQ2_XXS/IQ2_XS/IQ1_M/UD-Q8_K_XL)."}),
             }
         }
 
@@ -1888,6 +1888,46 @@ def _bsai_comfy_audio_to_wav_b64(audio_input):
 
 
 class BSAI_QwenMultimodalInference:
+    # Dropdown options for the ASR inputs. INPUT_TYPES and VALIDATE_INPUTS both
+    # read these, so the offered list and the accepted values cannot drift apart.
+    AUDIO_MODE_OPTIONS = ["Local ASR transcription", "Native audio modality"]
+    WHISPER_DEVICE_OPTIONS = ["Auto (Intel XPU preferred)", "GPU CUDA (fastest)", "CPU (no GPU)"]
+    WHISPER_LANGUAGE_OPTIONS = ["Chinese (zh)", "Auto detect", "English (en)", "Japanese (ja)", "Korean (ko)"]
+
+    # The Chinese labels these three lists carried before they were translated.
+    # Workflows saved with them are still accepted (see VALIDATE_INPUTS) and
+    # run() maps them to the English values; they are not offered in the UI.
+    LEGACY_AUDIO_MODE = {
+        "本地ASR转写（推荐：兼容所有模型，提取字幕）": "Local ASR transcription",
+        "原生音频模态（input_audio：需Omni/音频模型）": "Native audio modality",
+    }
+    LEGACY_WHISPER_DEVICE = {
+        "自动（Intel核显XPU优先，不占5090显存）": "Auto (Intel XPU preferred)",
+        "本机GPU CUDA（5090，最快但占~3GB显存）": "GPU CUDA (fastest)",
+        "CPU（最慢，零GPU占用）": "CPU (no GPU)",
+    }
+    LEGACY_WHISPER_LANGUAGE = {
+        "中文 (zh)": "Chinese (zh)", "自动检测": "Auto detect",
+        "英语 (en)": "English (en)", "日语 (ja)": "Japanese (ja)", "韩语 (ko)": "Korean (ko)",
+    }
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, audio_mode=None, whisper_device=None, whisper_language=None):
+        # These three inputs are the only ones named here, which is exactly what
+        # exempts them from the built-in combo check (execution.py skips the
+        # check for inputs listed in validate_function_inputs). A **kwargs
+        # signature would exempt every input of this node, model file names too.
+        checks = (
+            ("audio_mode", audio_mode, cls.AUDIO_MODE_OPTIONS, cls.LEGACY_AUDIO_MODE),
+            ("whisper_device", whisper_device, cls.WHISPER_DEVICE_OPTIONS, cls.LEGACY_WHISPER_DEVICE),
+            ("whisper_language", whisper_language, cls.WHISPER_LANGUAGE_OPTIONS, cls.LEGACY_WHISPER_LANGUAGE),
+        )
+        for name, value, options, legacy in checks:
+            if value is None or value in options or value in legacy:
+                continue
+            return "Invalid %s: %s" % (name, value)
+        return True
+
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -1905,9 +1945,9 @@ class BSAI_QwenMultimodalInference:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "step": 1}),
                 "auto_unload": ("BOOLEAN", {"default": True, "tooltip": "Immediately release LLM VRAM (~16GB) after inference to avoid OOM for later models. Disable when chaining multiple nodes on the same model."}),
                 "video_max_frames": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1}),
-                "audio_mode": (["Local ASR transcription", "Native audio modality", "本地ASR转写（推荐：兼容所有模型，提取字幕）", "原生音频模态（input_audio：需Omni/音频模型）"], {"default": "Local ASR transcription", "tooltip": "Local ASR: transcribes audio with Whisper large-v3 into subtitle text injected into prompt (works with all models). Native audio: sends audio as input_audio directly to backend (Qwen2.5-Omni etc.)."}),
-                "whisper_device": (["Auto (Intel XPU preferred)", "GPU CUDA (fastest)", "CPU (no GPU)", "自动（Intel核显XPU优先，不占5090显存）"], {"default": "Auto (Intel XPU preferred)", "tooltip": "ASR device: Auto prefers idle Intel iGPU for the resident worker; GPU runs fp16 on CUDA (fastest, ~3GB VRAM); CPU fallback."}),
-                "whisper_language": (["Chinese (zh)", "Auto detect", "English (en)", "Japanese (ja)", "Korean (ko)", "中文 (zh)", "自动检测"], {"default": "Chinese (zh)", "tooltip": "ASR language: forcing zh for Chinese content reduces language-misdetection hallucination in long intros; Auto lets Whisper decide."}),
+                "audio_mode": (s.AUDIO_MODE_OPTIONS, {"default": "Local ASR transcription", "tooltip": "Local ASR: transcribes audio with Whisper large-v3 into subtitle text injected into prompt (works with all models). Native audio: sends audio as input_audio directly to backend (Qwen2.5-Omni etc.)."}),
+                "whisper_device": (s.WHISPER_DEVICE_OPTIONS, {"default": "Auto (Intel XPU preferred)", "tooltip": "ASR device: Auto prefers idle Intel iGPU for the resident worker; GPU runs fp16 on CUDA (fastest, ~3GB VRAM); CPU fallback."}),
+                "whisper_language": (s.WHISPER_LANGUAGE_OPTIONS, {"default": "Chinese (zh)", "tooltip": "ASR language: forcing zh for Chinese content reduces language-misdetection hallucination in long intros; Auto lets Whisper decide."}),
             },
             "optional": {
                 "image_1": ("IMAGE",),
@@ -1931,19 +1971,9 @@ class BSAI_QwenMultimodalInference:
 
     def run(self, qwen_model, text, system_prompt, max_tokens, temperature, top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty, seed, auto_unload, video_max_frames, audio_mode, whisper_device, whisper_language="Chinese (zh)", image_1=None, image_2=None, image_3=None, image_4=None, image_5=None, video_1=None, video_2=None, video_3=None, audio_1=None, audio_2=None, audio_3=None):
         # Legacy Chinese dropdown values → English (backward compat for old workflows)
-        _audio_map = {
-            "本地ASR转写（推荐：兼容所有模型，提取字幕）": "Local ASR transcription",
-            "原生音频模态（input_audio：需Omni/音频模型）": "Native audio modality",
-        }
-        _dev_map = {
-            "自动（Intel核显XPU优先，不占5090显存）": "Auto (Intel XPU preferred)",
-            "本机GPU CUDA（5090，最快但占~3GB显存）": "GPU CUDA (fastest)",
-            "CPU（最慢，零GPU占用）": "CPU (no GPU)",
-        }
-        _lang_map = {
-            "中文 (zh)": "Chinese (zh)", "自动检测": "Auto detect",
-            "英语 (en)": "English (en)", "日语 (ja)": "Japanese (ja)", "韩语 (ko)": "Korean (ko)",
-        }
+        _audio_map = self.LEGACY_AUDIO_MODE
+        _dev_map = self.LEGACY_WHISPER_DEVICE
+        _lang_map = self.LEGACY_WHISPER_LANGUAGE
         audio_mode = _audio_map.get(audio_mode, audio_mode)
         whisper_device = _dev_map.get(whisper_device, whisper_device)
         whisper_language = _lang_map.get(whisper_language, whisper_language)

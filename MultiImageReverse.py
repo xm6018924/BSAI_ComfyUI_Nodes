@@ -573,7 +573,7 @@ class BSAI_MultiImageVideoReverse:
                 ok, msg = _m.NInferManager.ensure_running(model_path=_mp)
                 print(f"[BSAI_MultiImageReverse] NInfer auto-start: {ok} ({msg})")
                 if not ok:
-                    return f"[BSAI NInfer reverse failed] 启动失败: {msg}", "", []
+                    return f"[BSAI NInfer reverse failed] engine start failed: {msg}", "", []
         except Exception as _e:
             print(f"[BSAI_MultiImageReverse] NInfer auto-start skipped: {_e}")
 
