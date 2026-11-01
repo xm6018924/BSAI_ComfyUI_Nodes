@@ -413,8 +413,11 @@ class BSAI_VideoLoaderPlus(ComfyNodeABC):
         return f"{mod_time}_{output_mode}_{frame_index}_{start_frame}_{end_frame}"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, file, **kwargs):
-        if not folder_paths.exists_annotated_filepath(file):
+    def VALIDATE_INPUTS(cls, file=None):
+        # Only `file` is named here, so ComfyUI's built-in combo/min/max checks
+        # keep running for every other input of this node (e.g. output_mode).
+        # Adding **kwargs here would switch them off for the whole node.
+        if file is None or not folder_paths.exists_annotated_filepath(file):
             return "Invalid video file: {}".format(file)
         return True
 
