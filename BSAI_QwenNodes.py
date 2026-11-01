@@ -572,13 +572,7 @@ def _bsai_list_llm_files():
 def _bsai_ninfer_model_list():
     """NInfer 模型下拉：models/LLM 下所有 *.ninfer 相对路径。"""
     try:
-        import importlib.util as _ilu
-        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-        if not os.path.exists(_p):
-            return []
-        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-        _m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_m)
+        _m = _bsai_load_strata_manager()
         return [rel for rel, _abs in _m.NInferManager.list_models()]
     except Exception:
         return []
@@ -587,13 +581,7 @@ def _bsai_ninfer_model_list():
 def _bsai_nemotron_model_list():
     """Nemotron 模型下拉：models/LLM/Nemotron 下所有非 mmproj 的 *.gguf。"""
     try:
-        import importlib.util as _ilu
-        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-        if not os.path.exists(_p):
-            return []
-        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-        _m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_m)
+        _m = _bsai_load_strata_manager()
         return [rel for rel, _abs, kind in _m.NemotronManager.list_models() if kind == "model"]
     except Exception:
         return []
@@ -602,16 +590,64 @@ def _bsai_nemotron_model_list():
 def _bsai_flint_model_list():
     """Flint 模型下拉：models/LLM/flint 下所有非 mmproj 的 *.gguf。"""
     try:
-        import importlib.util as _ilu
-        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-        if not os.path.exists(_p):
-            return []
-        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-        _m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_m)
+        _m = _bsai_load_strata_manager()
         return [rel for rel, _abs in _m.FlintManager.list_models()]
     except Exception:
         return []
+
+
+def _bsai_deepseek_model_list():
+    """DeepSeek-V4.1-Flash 模型下拉：models/LLM/DeepSeek 下已存在的 build
+    (按 shard 文件名识别 IQ2_XXS / IQ2_XS / IQ1_M / UD-Q8_K_XL)。"""
+    try:
+        _m = _bsai_load_strata_manager()
+        return list(_m.DeepSeekManager.list_builds())
+    except Exception:
+        return []
+
+
+def _bsai_load_strata_manager():
+    """Load strata_manager.py ONCE per process and share it process-wide.
+
+    背景: 此前各后端/加载器每次调用都用 importlib.util 重新加载
+    strata_manager.py（从未缓存进 sys.modules），导致 FlintManager /
+    NInferManager / NemotronManager 的类级状态（已启动的 llama-server
+    进程 _proc、当前激活模型 _active_model_path）每次都重新变成空值。
+    后果: ① 每次推理都误判"引擎未启动"，重复拉起新的 llama-server，
+    多个实例在 Windows 上双绑定同一端口、请求随机卡死；
+    ② 切换引擎时的自动卸载 (_bsai_stop_all_http_engines) 因 _proc 为空
+    变成空操作，旧引擎不释放显存/内存。
+    本函数优先复用 BSAI-LLM-Strata 插件启动时已导入的同名模块（真正的
+    进程级单例），否则加载一次并注册到 sys.modules 缓存。
+    """
+    import sys as _sys
+    import importlib.util as _ilu
+
+    # 1) 复用 BSAI-LLM-Strata 插件启动时已导入的 strata_manager 实例
+    #    (from .strata_manager import ... 注册为 <pkg>.strata_manager)
+    for _name, _mod in list(_sys.modules.items()):
+        _f = getattr(_mod, "__file__", "") or ""
+        if _f.replace("\\", "/").endswith("BSAI-LLM-Strata/strata_manager.py"):
+            _sys.modules["bsai_strata_manager"] = _mod
+            return _mod
+
+    # 2) 本文件已加载过的缓存
+    _mod_name = "bsai_strata_manager"
+    _m = _sys.modules.get(_mod_name)
+    if _m is not None:
+        return _m
+
+    # 3) 首次加载：注册后再 exec，保证任何递归引用都拿到同一个实例
+    _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
+    _spec = _ilu.spec_from_file_location(_mod_name, _p)
+    _m = _ilu.module_from_spec(_spec)
+    _sys.modules[_mod_name] = _m
+    try:
+        _spec.loader.exec_module(_m)
+    except Exception:
+        _sys.modules.pop(_mod_name, None)
+        raise
+    return _m
 
 
 def _bsai_check_mtp_layer(model_path):
@@ -969,12 +1005,7 @@ class _BSAI_NInferHTTPBackend:
 
     def _manager(self):
         if self._mgr is None:
-            import importlib.util as _ilu
-            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-            _m = _ilu.module_from_spec(_spec)
-            _spec.loader.exec_module(_m)
-            self._mgr = _m.NInferManager
+            self._mgr = _bsai_load_strata_manager().NInferManager
         return self._mgr
 
     def create_chat_completion(self, messages=None, **kwargs):
@@ -1023,20 +1054,16 @@ class _BSAI_FlintHTTPBackend:
     """Mimics the subset of Llama used by BSAI_QwenPromptInference, routed to
     the local Flint 40B engine (llama.cpp, OpenAI-compatible @8082)."""
 
-    def __init__(self, n_ctx=32768, quant_label=None, flint_model="(Auto — first model found)"):
+    def __init__(self, n_ctx=32768, quant_label=None, flint_model="(Auto — first model found)", enable_thinking=False):
         self.n_ctx = n_ctx
         self.quant_label = quant_label
         self.flint_model = None if str(flint_model).startswith("(Auto") else str(flint_model)
+        self.enable_thinking = bool(enable_thinking)
         self._mgr = None
 
     def _manager(self):
         if self._mgr is None:
-            import importlib.util as _ilu
-            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-            _m = _ilu.module_from_spec(_spec)
-            _spec.loader.exec_module(_m)
-            self._mgr = _m.FlintManager
+            self._mgr = _bsai_load_strata_manager().FlintManager
         return self._mgr
 
     def create_chat_completion(self, messages=None, **kwargs):
@@ -1058,6 +1085,77 @@ class _BSAI_FlintHTTPBackend:
         }
         mids = mgr.models()
         payload["model"] = mids[0] if mids else "Flint-40B"
+        if not self.enable_thinking:
+            # Qwen3 系模板: 关闭思考, 否则思考可能耗尽整个 max_tokens,
+            # 导致 content 为空(全部生成进入 reasoning_content)。
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
+        data = _json.dumps(payload).encode("utf-8")
+        u = _up(mgr.base_url())
+
+        s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+        s.settimeout(600); s.setblocking(True)
+        s.connect((u.hostname, u.port or 80))
+        try:
+            conn = _hc.HTTPConnection(u.hostname, u.port or 80, timeout=600)
+            conn.sock = s
+            conn.request("POST", u.path + "/chat/completions", body=data,
+                         headers={"Content-Type": "application/json"})
+            return _json.loads(conn.getresponse().read().decode("utf-8", "replace"))
+        finally:
+            s.close()
+
+    def close(self):
+        pass
+
+
+# BSAI DeepSeek HTTP backend: same Llama-mimicking interface, routed to the
+# local DeepSeek-V4.1-Flash engine (Strata strata-dsv41 @127.0.0.1:8083),
+# auto-started by DeepSeekManager inside BSAI-LLM-Strata/strata_manager.py.
+# ---------------------------------------------------------------------------
+class _BSAI_DeepSeekHTTPBackend:
+    """Mimics the subset of Llama used by BSAI_QwenPromptInference, routed to
+    the local DeepSeek-V4.1-Flash engine (Strata, OpenAI-compatible @8083)."""
+
+    def __init__(self, n_ctx=32768, quant_label=None, deepseek_build=None, enable_thinking=False):
+        self.n_ctx = n_ctx
+        self.quant_label = quant_label
+        self.deepseek_build = deepseek_build
+        self.enable_thinking = bool(enable_thinking)
+        self._mgr = None
+
+    def _manager(self):
+        # BSAI 2026-11-01: 走 _bsai_load_strata_manager() 的进程级单例, 与
+        # _bsai_stop_all_http_engines / ModelLoader 共用同一个模块实例。
+        # 之前这里各自 exec_module 会得到独立副本, DeepSeekManager._proc /
+        # _active_build 与别处看到的不一致; 配合 ensure_running 的 health
+        # 短路虽已不会误杀引擎, 但状态不通仍会导致重复拉起。
+        if self._mgr is None:
+            self._mgr = _bsai_load_strata_manager().DeepSeekManager
+        return self._mgr
+
+    def create_chat_completion(self, messages=None, **kwargs):
+        mgr = self._manager()
+        ok, msg = mgr.ensure_running(model_build=self.deepseek_build)
+        if not ok:
+            raise ConnectionError(f"DeepSeek engine failed to start: {msg}")
+        import json as _json
+        import socket as _sk, http.client as _hc
+        from urllib.parse import urlparse as _up
+
+        max_tokens_val = kwargs.get("max_tokens", 8192)
+        payload = {
+            "messages": messages or [],
+            "max_tokens": max_tokens_val,
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "stream": False,
+        }
+        mids = mgr.models()
+        payload["model"] = mids[0] if mids else "deepseek-v4.1-flash"
+        if not self.enable_thinking:
+            # DeepSeek-V4.1: 通过 reasoning_effort 控制思考强度。
+            # enable_thinking=False 时设为 low, 避免思考耗尽 max_tokens。
+            payload["reasoning_effort"] = "low"
         data = _json.dumps(payload).encode("utf-8")
         u = _up(mgr.base_url())
 
@@ -1092,12 +1190,7 @@ class _BSAI_NemotronHTTPBackend:
 
     def _manager(self):
         if self._mgr is None:
-            import importlib.util as _ilu
-            _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-            _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-            _m = _ilu.module_from_spec(_spec)
-            _spec.loader.exec_module(_m)
-            self._mgr = _m.NemotronManager
+            self._mgr = _bsai_load_strata_manager().NemotronManager
         return self._mgr
 
     def create_chat_completion(self, messages=None, **kwargs):
@@ -1147,11 +1240,7 @@ def _bsai_stop_all_http_engines(except_backend=None):
     is skipped to avoid stopping an engine we are about to (re)start.
     """
     try:
-        import importlib.util as _ilu
-        _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-        _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-        _m = _ilu.module_from_spec(_spec)
-        _spec.loader.exec_module(_m)
+        _m = _bsai_load_strata_manager()
     except Exception as e:
         print(f"[BSAI] stop_all_engines: cannot load strata_manager: {e}")
         return
@@ -1162,6 +1251,7 @@ def _bsai_stop_all_http_engines(except_backend=None):
         ("BSAI NInfer", _m.NInferManager),
         ("BSAI Nemotron", _m.NemotronManager),
         ("BSAI Flint", _m.FlintManager),
+        ("BSAI DeepSeek", _m.DeepSeekManager),
     ]
     for label, mgr in targets:
         if except_backend.startswith(label):
@@ -1175,6 +1265,28 @@ def _bsai_stop_all_http_engines(except_backend=None):
                 print(f"[BSAI] Auto-unloaded {label} engine (VRAM freed).")
         except Exception as e:
             # If health check fails, the engine is already down — nothing to do.
+            pass
+        # Orphan fallback: 若该引擎进程不是当前管理器拉起的（例如修复前
+        # 重复加载留下的残留实例），mgr.stop() 是空操作、端口仍被占用。
+        # 切换引擎必须真正释放显存/内存，故按端口兜底清理监听进程。
+        try:
+            from urllib.parse import urlparse as _up
+            import subprocess as _sp
+            _port = _up(mgr.base_url()).port
+            if not _port:
+                continue
+            _net = _sp.run(["netstat", "-ano", "-p", "TCP"],
+                           capture_output=True, text=True, timeout=15)
+            for _line in _net.stdout.splitlines():
+                if f":{_port}" in _line and "LISTENING" in _line:
+                    _pid = _line.split()[-1]
+                    if _pid.isdigit():
+                        _sp.run(["taskkill", "/F", "/T", "/PID", _pid],
+                                capture_output=True, timeout=15)
+                        print(f"[BSAI] Auto-unloaded orphan engine on port "
+                              f"{_port} (PID {_pid}).")
+                        break
+        except Exception:
             pass
 
 
@@ -1192,9 +1304,9 @@ class BSAI_QwenModelLoader:
 
         return {
             "required": {
-                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)"],
+                "backend": (["llama.cpp (local GGUF)", "BSAI Strata HTTP (Qwen3.8-Flash-Next @127.0.0.1:8080)", "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)", "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)", "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)", "BSAI DeepSeek HTTP (DeepSeek-V4.1-Flash @127.0.0.1:8083)"],
                           {"default": "llama.cpp (local GGUF)",
-                           "tooltip": "Strata backend calls the local Strata service (8080); Nemotron calls llama.cpp (8085); NInfer calls the local ninfer-serve engine on a dynamic free port (8081+); Flint calls the local llama.cpp Flint-40B engine on 8082."}),
+                           "tooltip": "Strata(8080)/Nemotron(8085)/NInfer(8081+)/Flint(8082)/DeepSeek(8083) 均为本地引擎, 选中后自动拉起。"}),
                 "model_family": (["Qwen3-VL", "Qwen3.5-VL", "Qwen3.6-VL", "Qwen3.8-VL", "Gemma4"], {"default": "Qwen3.8-VL"}),
                 "model_file": (model_list, {"tooltip": "Main model file (recommended .gguf) placed in ComfyUI/models/LLM/"}),
                 "mmproj": (mmproj_list, {"default": "None", "tooltip": "Multimodal requires mmproj; for text-only you may select None."}),
@@ -1212,6 +1324,9 @@ class BSAI_QwenModelLoader:
                 "flint_model": (["(Auto — first model found)"] + _bsai_flint_model_list(),
                                  {"default": "(Auto — first model found)",
                                   "tooltip": "Flint backend only: which GGUF model to load (models/LLM/flint). Changing it restarts the Flint llama.cpp engine."}),
+                "deepseek_model": (["(Auto — detected build)"] + _bsai_deepseek_model_list(),
+                                   {"default": "(Auto — detected build)",
+                                    "tooltip": "DeepSeek backend only: which build to load (models/LLM/DeepSeek). Auto 按 shard 自动识别 IQ2_XXS/IQ2_XS/IQ1_M/UD-Q8_K_XL。"}),
             }
         }
 
@@ -1220,7 +1335,7 @@ class BSAI_QwenModelLoader:
     FUNCTION = "load"
     CATEGORY = "BSAI"
 
-    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)", flint_model="(Auto — first model found)"):
+    def load(self, backend, model_family, model_file, mmproj, enable_thinking, context_length, gpu_layers, strata_quant="Auto (auto)", ninfer_model="(Auto — first model found)", nemotron_model="(Auto — first model found)", flint_model="(Auto — first model found)", deepseek_model="(Auto — detected build)"):
         # 兼容旧工作流: context_length=-1 (旧版 auto 语义) -> 默认 32768
         ctx = int(context_length)
         if ctx < 1024:
@@ -1297,11 +1412,7 @@ class BSAI_QwenModelLoader:
         # --- Nemotron HTTP backend: talk to the local llama.cpp engine ---
         if str(backend).startswith("BSAI Nemotron"):
             try:
-                import importlib.util as _ilu
-                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-                _m = _ilu.module_from_spec(_spec)
-                _spec.loader.exec_module(_m)
+                _m = _bsai_load_strata_manager()
                 _mp = None if str(nemotron_model).startswith("(Auto") else str(nemotron_model)
                 ok, msg = _m.NemotronManager.ensure_running(model_path=_mp)
                 if not ok:
@@ -1316,11 +1427,7 @@ class BSAI_QwenModelLoader:
         # --- NInfer HTTP backend: talk to the AI蛮子 ninfer-serve engine ---
         if str(backend).startswith("BSAI NInfer"):
             try:
-                import importlib.util as _ilu
-                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-                _m = _ilu.module_from_spec(_spec)
-                _spec.loader.exec_module(_m)
+                _m = _bsai_load_strata_manager()
                 ok, msg = _m.NInferManager.ensure_running()
                 if not ok:
                     raise RuntimeError(f"NInfer engine failed to start: {msg}")
@@ -1333,11 +1440,7 @@ class BSAI_QwenModelLoader:
         # --- Flint HTTP backend: talk to the local Flint 40B llama.cpp engine ---
         if str(backend).startswith("BSAI Flint"):
             try:
-                import importlib.util as _ilu
-                _p = os.path.join(os.path.dirname(__file__), "..", "BSAI-LLM-Strata", "strata_manager.py")
-                _spec = _ilu.spec_from_file_location("bsai_strata_manager", _p)
-                _m = _ilu.module_from_spec(_spec)
-                _spec.loader.exec_module(_m)
+                _m = _bsai_load_strata_manager()
                 _fp = None if str(flint_model).startswith("(Auto") else str(flint_model)
                 ok, msg = _m.FlintManager.ensure_running(model_path=_fp)
                 if not ok:
@@ -1347,7 +1450,22 @@ class BSAI_QwenModelLoader:
                 print(f"[BSAI] Auto-start Flint failed: {e}")
                 print("[BSAI] 请确认 llama-server.exe 已就位（BSAI-LLM-Strata/flint/llama.cpp/ 或整合包根 BSAI-llama.cpp/），"
                       "模型已下载到 models/LLM/flint/")
-            return (_BSAI_FlintHTTPBackend(n_ctx=ctx, flint_model=flint_model),)
+            return (_BSAI_FlintHTTPBackend(n_ctx=ctx, flint_model=flint_model, enable_thinking=enable_thinking),)
+
+        # --- DeepSeek HTTP backend: talk to the local DeepSeek-V4.1-Flash Strata engine ---
+        if str(backend).startswith("BSAI DeepSeek"):
+            try:
+                _m = _bsai_load_strata_manager()
+                _db = None if str(deepseek_model).startswith("(Auto") else str(deepseek_model)
+                ok, msg = _m.DeepSeekManager.ensure_running(model_build=_db)
+                if not ok:
+                    raise RuntimeError(f"DeepSeek engine failed to start: {msg}")
+                print(f"[BSAI] DeepSeek service ready @{_m.DeepSeekManager.base_url()}")
+            except Exception as e:
+                print(f"[BSAI] Auto-start DeepSeek failed: {e}")
+                print("[BSAI] 请确认 Strata runtime 已安装 (先跑一次 Qwen3.8-Flash-Next 后端), "
+                      "且 DeepSeek GGUF 分片已下载到 models/LLM/DeepSeek/")
+            return (_BSAI_DeepSeekHTTPBackend(n_ctx=ctx, deepseek_build=deepseek_model, enable_thinking=enable_thinking),)
 
         if model_file is None or str(model_file).startswith("(place models") or str(model_file).startswith("（请把模型放到"):
             raise RuntimeError("No model file found. Please place the model in ComfyUI/models/LLM/ and restart.")
@@ -1458,6 +1576,18 @@ class BSAI_QwenPromptInference:
             text = out["choices"][0]["message"]["content"]
         except Exception:
             text = str(out)
+
+        if not text:
+            # 思考模型: max_tokens 在未闭合的思考块内耗尽时 content 为空,
+            # 全部生成内容在 reasoning_content 中。
+            try:
+                reasoning = out["choices"][0]["message"].get("reasoning_content")
+            except Exception:
+                reasoning = None
+            if reasoning:
+                print("[BSAI] 警告: 模型把 max_tokens 全部用于思考, 正文为空, 已回退输出思考内容。"
+                      "建议关闭 enable_thinking 或增大 max_tokens。")
+                text = reasoning
 
         # Strata HTTP may return None; fall back to an empty string
         if text is None:
@@ -1893,8 +2023,9 @@ class BSAI_QwenMultimodalInference:
         # Text-only backends (Flint, Nemotron) cannot process images, so strip
         # image content items and keep only text to avoid server errors.
         _HTTP_BACKENDS = (_BSAI_StrataHTTPBackend, _BSAI_NInferHTTPBackend,
-                          _BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend)
-        _TEXT_ONLY_BACKENDS = (_BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend)
+                          _BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend,
+                          _BSAI_DeepSeekHTTPBackend)
+        _TEXT_ONLY_BACKENDS = (_BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend, _BSAI_DeepSeekHTTPBackend)
 
         if isinstance(llm, _HTTP_BACKENDS):
             import base64 as _b64
@@ -1991,6 +2122,18 @@ class BSAI_QwenMultimodalInference:
             text = out["choices"][0]["message"]["content"]
         except Exception:
             text = str(out)
+
+        if not text:
+            # 思考模型: max_tokens 在未闭合的思考块内耗尽时 content 为空,
+            # 全部生成内容在 reasoning_content 中。
+            try:
+                reasoning = out["choices"][0]["message"].get("reasoning_content")
+            except Exception:
+                reasoning = None
+            if reasoning:
+                print("[BSAI] 警告: 模型把 max_tokens 全部用于思考, 正文为空, 已回退输出思考内容。"
+                      "建议关闭 enable_thinking 或增大 max_tokens。")
+                text = reasoning
 
         # Strata HTTP may return None; fall back to an empty string
         if text is None:

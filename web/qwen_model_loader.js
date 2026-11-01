@@ -19,6 +19,7 @@ const BACKEND_WIDGET_GROUPS = {
   "BSAI Nemotron HTTP (llama.cpp @127.0.0.1:8085)": COMMON_WIDGETS.concat(["nemotron_model"]),
   "BSAI NInfer HTTP (local reverse @127.0.0.1:808x)": COMMON_WIDGETS.concat(["ninfer_model"]),
   "BSAI Flint HTTP (Flint-40B @127.0.0.1:8082)": COMMON_WIDGETS.concat(["flint_model"]),
+  "BSAI DeepSeek HTTP (DeepSeek-V4.1-Flash @127.0.0.1:8083)": COMMON_WIDGETS.concat(["deepseek_model"]),
 };
 
 function setWidgetHidden(widget, hidden) {
