@@ -2058,7 +2058,7 @@ class BSAI_QwenMultimodalInference:
         _HTTP_BACKENDS = (_BSAI_StrataHTTPBackend, _BSAI_NInferHTTPBackend,
                           _BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend,
                           _BSAI_DeepSeekHTTPBackend)
-        _TEXT_ONLY_BACKENDS = (_BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend, _BSAI_DeepSeekHTTPBackend)
+        _TEXT_ONLY_BACKENDS = (_BSAI_FlintHTTPBackend, _BSAI_NemotronHTTPBackend)
 
         if isinstance(llm, _HTTP_BACKENDS):
             import base64 as _b64
