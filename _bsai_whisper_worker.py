@@ -34,9 +34,20 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 MDL_DIR = os.path.realpath(os.path.join(_HERE, "..", "..", "models", "whisper", "whisper-large-v3"))
 log("model dir:", MDL_DIR)
 
-proc = WhisperProcessor.from_pretrained(MDL_DIR)
-model = WhisperForConditionalGeneration.from_pretrained(MDL_DIR).to(DEV).eval()
-log("model loaded")
+proc = None
+model = None
+_FATAL = None
+try:
+    proc = WhisperProcessor.from_pretrained(MDL_DIR, local_files_only=True)
+    model = WhisperForConditionalGeneration.from_pretrained(
+        MDL_DIR, local_files_only=True).to(DEV).eval()
+    log("model loaded")
+except Exception as e:
+    # 模型目录缺失/文件不全时不要静默退出：父进程的 stderr 被重定向到日志，
+    # 真正的原因必须通过 stdout 的 JSON 回给调用方。
+    _FATAL = (f"whisper model load failed at {MDL_DIR}: "
+              f"{type(e).__name__}: {e}")
+    log(_FATAL)
 
 # 低于该 RMS(约-49dBFS)的 30s 块视为静音, 直接标注跳过, 不进 Whisper
 # (防止长前奏/间奏静音段触发 Whisper 幻觉文本, 同时省推理时间)
@@ -84,15 +95,22 @@ def _transcribe_array(audio_16k, language=None):
 
 
 # ---- warmup: trigger XPU kernel JIT compilation so the first real request is fast ----
-try:
-    _warm = np.zeros(16000, dtype=np.float32)
-    _inputs = proc(_warm, sampling_rate=16000, return_tensors="pt")
-    _feat = _inputs.input_features.to(DEV).to(model.dtype)
-    with torch.no_grad():
-        _ = model.generate(_feat)
-    log("warmup done")
-except Exception as e:
-    log("warmup failed (non-fatal):", repr(e)[:200])
+if _FATAL is None:
+    try:
+        _warm = np.zeros(16000, dtype=np.float32)
+        _inputs = proc(_warm, sampling_rate=16000, return_tensors="pt")
+        _feat = _inputs.input_features.to(DEV).to(model.dtype)
+        with torch.no_grad():
+            _ = model.generate(_feat)
+        log("warmup done")
+    except Exception as e:
+        log("warmup failed (non-fatal):", repr(e)[:200])
+
+if _FATAL is not None:
+    sys.stdout.write(json.dumps({"ok": False, "error": _FATAL}, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+    log("worker exit (fatal)")
+    raise SystemExit(1)
 
 log("READY")
 

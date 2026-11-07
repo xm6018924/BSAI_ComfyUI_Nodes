@@ -1235,6 +1235,26 @@ class _BSAI_NemotronHTTPBackend:
         pass
 
 
+def _bsai_decode_console_output(raw):
+    """Decode a Windows CLI's raw bytes regardless of its console code page.
+
+    netstat / tasklist / nvidia-smi 等系统命令在中文 Windows 上按 GBK(cp936)
+    输出。ComfyUI 以 UTF-8 模式运行时，subprocess 的 text=True 会在读取线程里
+    抛 UnicodeDecodeError —— 线程直接死掉，输出全丢，调用方只能拿到空串。
+    因此统一先收 bytes 再按 UTF-8 -> GBK 顺序解码。
+    """
+    if not raw:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    for _enc in ("utf-8", "gbk", "cp936"):
+        try:
+            return raw.decode(_enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
+
+
 def _bsai_stop_all_http_engines(except_backend=None):
     """Stop all BSAI HTTP LLM engines (Strata / NInfer / Nemotron / Flint)
     so switching backends frees VRAM without restarting ComfyUI.
@@ -1279,8 +1299,8 @@ def _bsai_stop_all_http_engines(except_backend=None):
             if not _port:
                 continue
             _net = _sp.run(["netstat", "-ano", "-p", "TCP"],
-                           capture_output=True, text=True, timeout=15)
-            for _line in _net.stdout.splitlines():
+                           capture_output=True, timeout=15)
+            for _line in _bsai_decode_console_output(_net.stdout).splitlines():
                 if f":{_port}" in _line and "LISTENING" in _line:
                     _pid = _line.split()[-1]
                     if _pid.isdigit():
@@ -1688,6 +1708,8 @@ def _bsai_get_video_path(video_input):
 # ---------------------------------------------------------------------------
 _BSAI_WHISPER_CACHE = {}
 _BSAI_WHISPER_WORKER = None
+_BSAI_WHISPER_WORKER_LOG = None
+_BSAI_WHISPER_WORKER_LOG_PATH = None
 
 
 def _bsai_comfy_audio_to_np(audio_input):
@@ -1804,23 +1826,58 @@ def _bsai_get_whisper_worker():
         raise FileNotFoundError(f"Whisper worker script not found: {worker_script}")
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
+    # worker 的加载日志（模型缺失、XPU 不可用、transformers 报错等）必须落盘，
+    # 否则进程一死就只剩一句 "exited unexpectedly"，真实原因永远看不到。
+    global _BSAI_WHISPER_WORKER_LOG, _BSAI_WHISPER_WORKER_LOG_PATH
+    _BSAI_WHISPER_WORKER_LOG_PATH = os.path.join(here, "_bsai_whisper_worker.err.log")
+    try:
+        if (os.path.exists(_BSAI_WHISPER_WORKER_LOG_PATH)
+                and os.path.getsize(_BSAI_WHISPER_WORKER_LOG_PATH) > 2 * 1024 * 1024):
+            os.remove(_BSAI_WHISPER_WORKER_LOG_PATH)
+    except OSError:
+        pass
+    try:
+        _BSAI_WHISPER_WORKER_LOG = open(_BSAI_WHISPER_WORKER_LOG_PATH, "ab")
+    except OSError:
+        _BSAI_WHISPER_WORKER_LOG = subprocess.DEVNULL
     p = subprocess.Popen(
         [xpu_py, "-X", "utf8", worker_script],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        text=True, encoding="utf-8", bufsize=1, env=env,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=_BSAI_WHISPER_WORKER_LOG,
+        text=True, encoding="utf-8", errors="replace", bufsize=1, env=env,
     )
     _BSAI_WHISPER_WORKER = p
     return p
 
 
+def _bsai_whisper_worker_stderr_tail(lines=20):
+    """Return the tail of the whisper worker's stderr log (may be empty)."""
+    p = _BSAI_WHISPER_WORKER_LOG_PATH
+    if not p or not os.path.exists(p):
+        return ""
+    try:
+        with open(p, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return ""
+    text = _bsai_decode_console_output(raw).splitlines()
+    return "\n".join(text[-lines:]).strip()
+
+
 def _bsai_whisper_via_worker(wav_path, language=None):
     import json as _json
     p = _bsai_get_whisper_worker()
-    p.stdin.write(_json.dumps({"wav": wav_path, "language": language}) + "\n")
-    p.stdin.flush()
-    line = p.stdout.readline()
+    try:
+        p.stdin.write(_json.dumps({"wav": wav_path, "language": language}) + "\n")
+        p.stdin.flush()
+        line = p.stdout.readline()
+    except (BrokenPipeError, OSError):
+        line = ""
     if not line:
-        raise RuntimeError("Whisper worker exited unexpectedly while transcribing.")
+        tail = _bsai_whisper_worker_stderr_tail()
+        msg = "Whisper worker exited unexpectedly while transcribing."
+        if tail:
+            msg += "\nworker stderr tail:\n" + tail
+        raise RuntimeError(msg)
     resp = _json.loads(line)
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error", "Whisper worker transcription failed."))
@@ -1838,11 +1895,12 @@ def _bsai_whisper_inline(audio, sr, device, language=None):
         md = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "models", "whisper", "whisper-large-v3"))
         if not os.path.isdir(md):
             raise FileNotFoundError(f"Whisper model directory not found: {md}")
-        proc = WhisperProcessor.from_pretrained(md)
+        proc = WhisperProcessor.from_pretrained(md, local_files_only=True)
         if device == "cuda" and not _t.cuda.is_available():
             device = "cpu"
         dtype = _t.float16 if device == "cuda" else _t.float32
-        mdl = WhisperForConditionalGeneration.from_pretrained(md, torch_dtype=dtype).to(device).eval()
+        mdl = WhisperForConditionalGeneration.from_pretrained(
+            md, torch_dtype=dtype, local_files_only=True).to(device).eval()
         _BSAI_WHISPER_CACHE.update(proc=proc, mdl=mdl, dev=device)
     proc, mdl, dev = _BSAI_WHISPER_CACHE["proc"], _BSAI_WHISPER_CACHE["mdl"], _BSAI_WHISPER_CACHE["dev"]
     if sr != 16000:
@@ -1852,22 +1910,44 @@ def _bsai_whisper_inline(audio, sr, device, language=None):
         np.asarray(audio, dtype=np.float32), proc, mdl, dev, language=language)
 
 
+def _bsai_xpu_available():
+    """True only when torch.xpu is present AND has a usable Intel device."""
+    try:
+        import torch as _t
+        return getattr(_t, "xpu", None) is not None and bool(_t.xpu.is_available())
+    except Exception:
+        return False
+
+
 def _bsai_whisper_transcribe(audio_input, device_pref, temp_dir, language=None):
-    """Dispatch ASR by device preference:
-       auto -> persistent XPU (Intel iGPU) worker; cuda -> inline fp16 on 5090; cpu -> inline CPU.
-       language: ISO-639-1 code (e.g. 'zh') to force decoder language; None = auto-detect."""
-    pref = str(device_pref)
-    if pref.startswith("本机GPU"):
-        audio, sr = _bsai_comfy_audio_to_np(audio_input)
-        if audio is None:
-            return ""
-        return _bsai_whisper_inline(audio, sr, "cuda", language=language)
-    if pref.startswith("CPU"):
+    """Dispatch ASR by device preference.
+
+    Accepts both the canonical English dropdown values and the legacy Chinese ones:
+      auto(=Auto (Intel XPU preferred)) -> XPU worker when the Intel iGPU is usable,
+      otherwise the NVIDIA GPU inline (CPU fallback inside the inline loader).
+      gpu  -> inline fp16 on the NVIDIA GPU.
+      cpu  -> inline CPU.
+    """
+    pref = str(device_pref or "").strip()
+    low = pref.lower()
+    if pref.startswith("本机CPU") or low.startswith("cpu"):
         audio, sr = _bsai_comfy_audio_to_np(audio_input)
         if audio is None:
             return ""
         return _bsai_whisper_inline(audio, sr, "cpu", language=language)
-    # auto: XPU worker on the idle Intel iGPU
+    if pref.startswith("本机GPU") or low.startswith("gpu") or "cuda" in low:
+        audio, sr = _bsai_comfy_audio_to_np(audio_input)
+        if audio is None:
+            return ""
+        return _bsai_whisper_inline(audio, sr, "cuda", language=language)
+    # auto: resident XPU worker only if the Intel iGPU can actually run torch.xpu;
+    # on a machine without XPU the worker would silently fall back to CPU and turn
+    # a 3GB model into a multi-minute crawl, so use the NVIDIA GPU inline instead.
+    if not _bsai_xpu_available():
+        audio, sr = _bsai_comfy_audio_to_np(audio_input)
+        if audio is None:
+            return ""
+        return _bsai_whisper_inline(audio, sr, "cuda", language=language)
     wav_path = _bsai_audio_to_temp_wav(audio_input, temp_dir)
     if not wav_path:
         return ""
