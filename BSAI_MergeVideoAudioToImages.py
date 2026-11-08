@@ -43,16 +43,33 @@ except ImportError:
 
 
 def _confine_comfy_path(path):
-    """Return the realpath of path if it lies inside a ComfyUI base dir, else None."""
+    """Return the realpath of path if it lies inside a ComfyUI base dir, else None.
+
+    The value is checked as text first: on Windows, resolving a network-share
+    (UNC) path makes the machine connect to that host and authenticate with the
+    signed-in account, so such values are refused before any realpath call.
+    """
     import folder_paths as _fp
+    raw = str(path or "").strip()
+    if not raw:
+        return None
+    if raw[0:2] in ("\\\\", "//") or "://" in raw:
+        return None
+    if ".." in [p for p in raw.replace("\\", "/").split("/")]:
+        return None
     bases = []
     for base in (_fp.get_input_directory(), _fp.get_temp_directory(), _fp.get_output_directory()):
         try:
             bases.append(os.path.realpath(base))
         except Exception:
             pass
+    if os.path.isabs(raw):
+        norm = os.path.normcase(os.path.normpath(raw))
+        if not any(norm == os.path.normcase(b) or
+                   norm.startswith(os.path.normcase(b) + os.sep) for b in bases):
+            return None
     try:
-        real = os.path.realpath(str(path or "").strip())
+        real = os.path.realpath(raw)
     except Exception:
         return None
     if not real:

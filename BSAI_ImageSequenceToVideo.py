@@ -7,6 +7,14 @@ import numpy as np
 from comfy.model_management import get_torch_device
 import folder_paths
 
+def _unsafe_path_text(value):
+    """True when a caller-supplied path string must be refused before I/O."""
+    text = str(value or "").strip()
+    if text[0:2] in ("\\\\", "//") or "://" in text:
+        return True
+    return ".." in [p for p in text.replace("\\", "/").split("/")]
+
+
 class BSAI_ImageSequenceToVideo:
     def __init__(self):
         pass
@@ -50,6 +58,11 @@ class BSAI_ImageSequenceToVideo:
             if not video_name:
                 video_name = "merged_video"
             output_path = str(output_path or "").strip().strip('"').strip("'")
+            # Reject network-share / URL / traversal text before any filesystem
+            # call: on Windows resolving a UNC value connects to that host.
+            if output_path and _unsafe_path_text(output_path):
+                print(f"[BSAI_ImageSequenceToVideo] output_path {output_path!r} is not a plain name; falling back to output root")
+                output_path = ""
             if output_path:
                 cand = os.path.realpath(os.path.join(base_out, output_path))
                 if os.path.commonpath([base_out_real, cand]) != base_out_real:

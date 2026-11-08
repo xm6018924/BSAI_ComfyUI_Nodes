@@ -36,9 +36,33 @@ from PIL import Image
 
 
 def _bsai_confine_comfy_path(path):
-    """Return the realpath of path if it lies inside a ComfyUI input/output/temp dir, else None."""
+    """Return the realpath of path if it lies inside a ComfyUI input/output/temp dir, else None.
+
+    The value is checked as text first: on Windows, resolving a network-share
+    (UNC) path makes the machine connect to that host and authenticate with the
+    signed-in account, so such values are refused before any realpath call.
+    """
+    raw = str(path or "").strip()
+    if not raw:
+        return None
+    if raw[0:2] in ("\\\\", "//") or "://" in raw:
+        return None
+    if ".." in [p for p in raw.replace("\\", "/").split("/")]:
+        return None
+    bases_text = []
+    for base in (folder_paths.get_input_directory(),
+                 folder_paths.get_temp_directory(),
+                 folder_paths.get_output_directory()):
+        try:
+            bases_text.append(os.path.normcase(os.path.normpath(base)))
+        except Exception:
+            continue
+    if os.path.isabs(raw):
+        norm = os.path.normcase(os.path.normpath(raw))
+        if not any(norm == b or norm.startswith(b + os.sep) for b in bases_text):
+            return None
     try:
-        real = os.path.realpath(str(path or "").strip())
+        real = os.path.realpath(raw)
     except Exception:
         return None
     if not real:
