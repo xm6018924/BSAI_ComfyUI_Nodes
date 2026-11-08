@@ -85,14 +85,30 @@ try:
         except Exception:
             return False
 
+    def _is_loopback_host(url):
+        """True only for a loopback address (used by the model-list route)."""
+        try:
+            parts = _urlparse.urlparse(str(url or "").strip())
+            host = (parts.hostname or "").strip().lower()
+            if not host:
+                return False
+            if host in ("localhost", "127.0.0.1", "::1", "[::1]"):
+                return True
+            ip = _socket.gethostbyname(host)
+            return ip.startswith("127.") or ip == "::1"
+        except Exception:
+            return False
+
     @PromptServer.instance.routes.post("/bsai_ollama/get_models")
     async def get_models_endpoint(request):
         data = await request.json()
 
-        url = data.get("url")
-        if not _is_allowed_host(url):
+        # The model list only ever talks to the local Ollama, so a request body
+        # cannot point this endpoint at any other host.
+        url = str(data.get("url") or "").strip() or "http://127.0.0.1:11434"
+        if not _is_loopback_host(url):
             return web.json_response(
-                {"error": "Ollama host must be localhost or a private LAN address (SSRF guard)"},
+                {"error": "This endpoint only queries the local Ollama host"},
                 status=400,
             )
         client = Client(host=url)

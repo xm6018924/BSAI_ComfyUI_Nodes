@@ -46,6 +46,7 @@ def _download_image_from_url(url: str):
     """
     try:
         import urllib.request
+        import urllib.error
         from urllib.parse import urlparse
         from PIL import Image
 
@@ -72,9 +73,27 @@ def _download_image_from_url(url: str):
             logger.warning(f"[BSAI Krea2] Blocked private/link-local host in style reference URL: {host}")
             return None
 
+        # No redirect following: a 302 to another host would otherwise let the
+        # private-host guard above be bypassed.
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect)
         req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-BSAI/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
+        try:
+            with opener.open(req, timeout=30) as resp:
+                final_host = (urlparse(resp.geturl()).hostname or "").lower()
+                if final_host != host:
+                    logger.warning(f"[BSAI Krea2] Style reference redirected to another host "
+                                   f"({final_host}); refused")
+                    return None
+                data = resp.read()
+        except urllib.error.HTTPError as exc:
+            if 300 <= exc.code < 400:
+                logger.warning(f"[BSAI Krea2] Style reference URL redirects ({exc.code}); refused")
+                return None
+            raise
         img = Image.open(io.BytesIO(data)).convert("RGB")
         img = img.resize((img.width, img.height), Image.LANCZOS)
         arr = torch.from_numpy(
