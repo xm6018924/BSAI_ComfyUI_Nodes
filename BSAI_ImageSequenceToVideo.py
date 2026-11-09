@@ -1,4 +1,5 @@
 import os
+import ntpath
 import subprocess
 import tempfile
 import torch
@@ -7,10 +8,30 @@ import numpy as np
 from comfy.model_management import get_torch_device
 import folder_paths
 
+
+def _windows_rooted_text(value):
+    """True when Windows treats the text as rooted or as a network share.
+
+    ``\\\\host\\share``, ``\\host\\share``, ``C:\\x`` and the drive-relative
+    ``C:x`` are all rooted for Windows. Catching them as text keeps the value
+    away from realpath()/exists(), which is what makes Windows connect to the
+    host and authenticate with the signed-in account.
+    """
+    text = str(value or "").strip().replace("/", "\\")
+    if not text:
+        return False
+    drive, _tail = ntpath.splitdrive(text)
+    return bool(drive) or text.startswith("\\")
+
+
 def _unsafe_path_text(value):
     """True when a caller-supplied path string must be refused before I/O."""
     text = str(value or "").strip()
+    if not text:
+        return False
     if text[0:2] in ("\\\\", "//") or "://" in text:
+        return True
+    if _windows_rooted_text(text):
         return True
     return ".." in [p for p in text.replace("\\", "/").split("/")]
 
