@@ -87,6 +87,7 @@ pip install -r requirements.txt   # 可选依赖按需安装
 |---|---|
 | **BSAI Draw Text Overlay** | 图像绘制文字：Windows 系统字体、CJK、描边、对齐 / Draw text overlay |
 | **BSAI Merge Images** | 多图合并网格图（2x2/3x3/自定义），循环累积模式 / Merge images into grid |
+| **BSAI Nine-Grid Mosaic**（同时注册别名 `NineGridMosaicNode`） | 9 个独立图像端口拼九宫格：接缝颜色/宽度、背景色、随机排序；别名接管社区同名节点，旧工作流免改线直接加载，默认按接线张数自动排布（9 张→3×3）/ Nine-grid mosaic with 9 separate image inputs; also registers the `NineGridMosaicNode` alias so old workflows load as-is, auto layout by wired image count |
 | **Compress Images** | 压缩图像为 JPEG/PNG/WEBP，可调质量与压缩级别 / Compress images |
 
 ---
